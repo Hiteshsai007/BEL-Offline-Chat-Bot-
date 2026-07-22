@@ -37,4 +37,4 @@ jobs:
         TRANSFORMERS_OFFLINE: "1"
         HF_DATASETS_OFFLINE: "1"
       run: |
-        pytest tests/ -v
+        python -m pytest tests/ -v
