@@ -1,173 +1,30 @@
 /**
- * BEL Offline AI Interface — Frontend Logic
- * No external dependencies. No network calls outside 127.0.0.1.
+ * BEL Offline AI Chatbot — Frontend Logic
+ * Conversation-style interface. No external dependencies.
  */
 
 'use strict';
 
-// ── Fault code reference data (verbatim from IRL_Fault_Codes.pdf) ────────────
-// Used to populate the quick-reference table without an extra API call.
-const FAULT_CODES = [
-  { sl: 1,  code: '0x0001', desc: 'System Status',                         remarks: 'System OK' },
-  { sl: 2,  code: '0x0002', desc: 'DEBAR Zone - fire restricted',          remarks: 'Fire command in Debar zone' },
-  { sl: 3,  code: '0x0003', desc: 'Fire aborted',                          remarks: 'Dynamic accuracy failed (+/- 0.5 Deg)' },
-  { sl: 4,  code: '0x0004', desc: 'Fire interlocks',                       remarks: 'Internal interlocks in IRL failed in time of firing' },
-  { sl: 5,  code: '0x0005', desc: 'R1 Misfired',                           remarks: 'Fired but still rocket present' },
-  { sl: 6,  code: '0x0006', desc: 'R2 Misfired',                           remarks: 'Fired but still rocket present' },
-  { sl: 7,  code: '0x0007', desc: 'R3 Misfired',                           remarks: 'Fired but still rocket present' },
-  { sl: 8,  code: '0x0008', desc: 'R4 Misfired',                           remarks: 'Fired but still rocket present' },
-  { sl: 9,  code: '0x0009', desc: 'R5 Misfired',                           remarks: 'Fired but still rocket present' },
-  { sl: 10, code: '0x0010', desc: 'R6 Misfired',                           remarks: 'Fired but still rocket present' },
-  { sl: 11, code: '0x0011', desc: 'R7 Misfired',                           remarks: 'Fired but still rocket present' },
-  { sl: 12, code: '0x0012', desc: 'R8 Misfired',                           remarks: 'Fired but still rocket present' },
-  { sl: 13, code: '0x0013', desc: 'R9 Misfired',                           remarks: 'Fired but still rocket present' },
-  { sl: 14, code: '0x0014', desc: 'R10 Misfired',                          remarks: 'Fired but still rocket present' },
-  { sl: 15, code: '0x0015', desc: 'R11 Misfired',                          remarks: 'Fired but still rocket present' },
-  { sl: 16, code: '0x0016', desc: 'R12 Misfired',                          remarks: 'Fired but still rocket present' },
-  { sl: 17, code: '0x0017', desc: 'Depth setting failed',                  remarks: 'Depth setting is stopped on some error' },
-  { sl: 18, code: '0x0018', desc: 'Throw range invalid for R1 (Note 6)',   remarks: 'not a valid throw range' },
-  { sl: 19, code: '0x0019', desc: 'Throw range invalid for R2 (Note 6)',   remarks: 'not a valid throw range' },
-  { sl: 20, code: '0x0020', desc: 'Throw range invalid for R3 (Note 6)',   remarks: 'not a valid throw range' },
-  { sl: 21, code: '0x0021', desc: 'Throw range invalid for R4 (Note 6)',   remarks: 'not a valid throw range' },
-  { sl: 22, code: '0x0022', desc: 'Throw range invalid for R5 (Note 6)',   remarks: 'not a valid throw range' },
-  { sl: 23, code: '0x0023', desc: 'Throw range invalid for R6 (Note 6)',   remarks: 'not a valid throw range' },
-  { sl: 24, code: '0x0024', desc: 'Throw range invalid for R7 (Note 6)',   remarks: 'not a valid throw range' },
-  { sl: 25, code: '0x0025', desc: 'Throw range invalid for R8 (Note 6)',   remarks: 'not a valid throw range' },
-  { sl: 26, code: '0x0026', desc: 'Throw range invalid for R9 (Note 6)',   remarks: 'not a valid throw range' },
-  { sl: 27, code: '0x0027', desc: 'Throw range invalid for R10 (Note 6)',  remarks: 'not a valid throw range' },
-  { sl: 28, code: '0x0028', desc: 'Throw range invalid for R11 (Note 6)',  remarks: 'not a valid throw range' },
-];
-
-// ── DOM refs ──────────────────────────────────────────────────────────────────
+// ── DOM refs ──────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 
+const messagesEl    = $('messages');
+const welcomeScreen = $('welcomeScreen');
 const queryInput    = $('queryInput');
-const submitBtn     = $('submitBtn');
-const loadingCard   = $('loadingCard');
-const answerCard    = $('answerCard');
-const answerBadge   = $('answerBadge');
-const answerBadgeText = $('answerBadgeText');
-const answerBody    = $('answerBody');
-const metaLatency   = $('metaLatency');
-const metaScore     = $('metaScore');
-const chunksSection = $('chunksSection');
-const chunksList    = $('chunksList');
-const guardrailNotice = $('guardrailNotice');
-const notfoundCard  = $('notfoundCard');
-const notfoundMsg   = $('notfoundMsg');
-const errorCard     = $('errorCard');
-const errorMsg      = $('errorMsg');
+const sendBtn       = $('sendBtn');
 const statusDot     = $('statusDot');
+const statusDotMob  = $('statusDotMobile');
 const statusLabel   = $('statusLabel');
-const refTableBody  = $('refTableBody');
+const footerModel   = $('footerModel');
+const sidebar       = $('sidebar');
+const menuBtn       = $('menuBtn');
+const sidebarToggle = $('sidebarToggle');
+const newChatBtn    = $('newChatBtn');
 
-// ── Populate quick-reference table ────────────────────────────────────────────
-function populateTable() {
-  refTableBody.innerHTML = FAULT_CODES.map(row => `
-    <tr data-code="${row.code}" onclick="fillQuery('${row.desc}')">
-      <td>${row.sl}</td>
-      <td>${row.code}</td>
-      <td>${escHtml(row.desc)}</td>
-      <td>${escHtml(row.remarks)}</td>
-    </tr>
-  `).join('');
-}
+// ── Conversation state ────────────────────────────────────────────────
+let isProcessing = false;
 
-function fillQuery(text) {
-  queryInput.value = `What does "${text}" mean?`;
-  queryInput.focus();
-}
-
-// ── Health check ─────────────────────────────────────────────────────────────
-async function checkHealth() {
-  try {
-    const resp = await fetch('/health');
-    const data = await resp.json();
-
-    if (data.ready) {
-      statusDot.className   = 'status-dot ok';
-      statusLabel.textContent = 'System ready';
-    } else if (data.index_exists && data.ollama !== 'ok') {
-      statusDot.className   = 'status-dot warn';
-      statusLabel.textContent = 'Ollama not running';
-    } else if (!data.index_exists) {
-      statusDot.className   = 'status-dot warn';
-      statusLabel.textContent = 'Index not built';
-    } else {
-      statusDot.className   = 'status-dot warn';
-      statusLabel.textContent = 'Partial ready';
-    }
-
-    if (data.model) {
-      $('footerModel').textContent = data.model;
-    }
-  } catch {
-    statusDot.className   = 'status-dot error';
-    statusLabel.textContent = 'Server offline';
-  }
-}
-
-// ── State management ──────────────────────────────────────────────────────────
-function hideAll() {
-  loadingCard.hidden   = true;
-  answerCard.hidden    = true;
-  notfoundCard.hidden  = true;
-  errorCard.hidden     = true;
-}
-
-function showLoading() {
-  hideAll();
-  loadingCard.hidden = false;
-  submitBtn.disabled = true;
-}
-
-function showAnswer(data) {
-  hideAll();
-
-  // Badge
-  answerBadge.className    = 'answer-badge';
-  answerBadgeText.textContent = 'Grounded answer';
-
-  // Meta
-  metaLatency.textContent = data.latency_ms ? `${data.latency_ms}ms` : '';
-  metaScore.textContent   = data.top_score  ? `score ${data.top_score.toFixed(3)}` : '';
-
-  // Answer text — highlight citations like [IRL Fault Codes, 0x0003]
-  answerBody.innerHTML = formatAnswerText(data.answer);
-
-  // Retrieved chunks
-  if (data.retrieved_chunks && data.retrieved_chunks.length > 0) {
-    chunksSection.hidden = false;
-    chunksList.innerHTML = data.retrieved_chunks.map(c => `
-      <div class="chunk-item">
-        <span class="chunk-code">${escHtml(c.error_code || 'N/A')}</span>
-        <span class="chunk-desc">${escHtml(c.error_description || '')}</span>
-        <span class="chunk-rem">${escHtml(c.error_remarks || '')}</span>
-      </div>
-    `).join('');
-  } else {
-    chunksSection.hidden = true;
-  }
-
-  // Guardrail notice
-  guardrailNotice.hidden = !data.guardrail_triggered;
-
-  answerCard.hidden = false;
-}
-
-function showNotFound(message) {
-  hideAll();
-  notfoundMsg.textContent = message || 'This information is not available in the current documentation.';
-  notfoundCard.hidden = false;
-}
-
-function showError(message) {
-  hideAll();
-  errorMsg.textContent = message || 'An unexpected error occurred. Check that the server is running.';
-  errorCard.hidden = false;
-}
-
-// ── Text formatting ────────────────────────────────────────────────────────────
+// ── Utilities ─────────────────────────────────────────────────────────
 function escHtml(str) {
   if (!str) return '';
   return str
@@ -177,9 +34,8 @@ function escHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-function formatAnswerText(text) {
+function formatAnswer(text) {
   if (!text) return '';
-  // Escape HTML first
   let safe = escHtml(text);
   // Highlight [Citation, Code] patterns
   safe = safe.replace(
@@ -191,15 +47,186 @@ function formatAnswerText(text) {
   return safe;
 }
 
-// ── Query submission ──────────────────────────────────────────────────────────
-async function submitQuery() {
-  const question = queryInput.value.trim();
-  if (!question) {
-    queryInput.focus();
-    return;
+function scrollToBottom() {
+  messagesEl.scrollTo({ top: messagesEl.scrollHeight, behavior: 'smooth' });
+}
+
+// ── Auto-resize textarea ──────────────────────────────────────────────
+function autoResize() {
+  queryInput.style.height = 'auto';
+  queryInput.style.height = Math.min(queryInput.scrollHeight, 150) + 'px';
+}
+
+queryInput.addEventListener('input', () => {
+  autoResize();
+  sendBtn.disabled = !queryInput.value.trim();
+});
+
+// ── Health check ──────────────────────────────────────────────────────
+async function checkHealth() {
+  try {
+    const resp = await fetch('/health');
+    const data = await resp.json();
+
+    const setStatus = (cls, text) => {
+      statusDot.className   = 'status-dot ' + cls;
+      if (statusDotMob) statusDotMob.className = 'status-dot ' + cls;
+      statusLabel.textContent = text;
+    };
+
+    if (data.ready) {
+      setStatus('ok', 'System ready');
+    } else if (data.index_exists && data.ollama !== 'ok') {
+      setStatus('warn', 'Ollama not running');
+    } else if (!data.index_exists) {
+      setStatus('warn', 'Index not built');
+    } else {
+      setStatus('warn', 'Partial ready');
+    }
+
+    if (data.model) {
+      footerModel.textContent = data.model;
+    }
+  } catch {
+    statusDot.className   = 'status-dot error';
+    if (statusDotMob) statusDotMob.className = 'status-dot error';
+    statusLabel.textContent = 'Server offline';
+  }
+}
+
+// ── Message rendering ─────────────────────────────────────────────────
+function addUserMessage(text) {
+  // Hide welcome screen on first message
+  if (welcomeScreen) welcomeScreen.style.display = 'none';
+
+  const row = document.createElement('div');
+  row.className = 'msg-row user';
+  row.innerHTML = `
+    <div class="msg-bubble">${escHtml(text)}</div>
+    <div class="msg-avatar">U</div>
+  `;
+  messagesEl.appendChild(row);
+  scrollToBottom();
+}
+
+function addThinkingBubble() {
+  const row = document.createElement('div');
+  row.className = 'msg-row ai thinking';
+  row.id = 'thinkingRow';
+  row.innerHTML = `
+    <div class="msg-avatar">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+      </svg>
+    </div>
+    <div class="msg-bubble">
+      <div class="thinking-dots">
+        <span></span><span></span><span></span>
+      </div>
+      <span class="thinking-text">Searching knowledge base...</span>
+    </div>
+  `;
+  messagesEl.appendChild(row);
+  scrollToBottom();
+}
+
+function removeThinkingBubble() {
+  const el = $('thinkingRow');
+  if (el) el.remove();
+}
+
+function addAIMessage(data) {
+  removeThinkingBubble();
+
+  const row = document.createElement('div');
+  row.className = 'msg-row ai';
+
+  let bubbleClass = 'msg-bubble';
+  let content = '';
+
+  if (!data.found) {
+    // Not found
+    bubbleClass += ' notfound-bubble';
+    content = `<strong>⚠ Not found in documentation</strong><br>${escHtml(data.answer)}`;
+  } else if (data.error && !data.answer) {
+    // Error
+    bubbleClass += ' error-bubble';
+    content = `<strong>❌ Service error</strong><br>${escHtml(data.error || 'Unexpected error — check server logs.')}`;
+  } else {
+    // Normal answer
+    content = formatAnswer(data.answer);
+
+    // Source chunks
+    if (data.retrieved_chunks && data.retrieved_chunks.length > 0) {
+      content += '<div class="msg-sources">';
+      content += '<div class="msg-sources-label">📄 Retrieved Sources</div>';
+      data.retrieved_chunks.forEach(c => {
+        content += `<div class="source-item">
+          <span class="source-code">${escHtml(c.error_code || 'N/A')}</span>
+          <span class="source-desc">${escHtml(c.error_description || '')}</span>
+          <span class="source-remarks">${escHtml(c.error_remarks || '')}</span>
+        </div>`;
+      });
+      content += '</div>';
+    }
+
+    // Guardrail notice
+    if (data.guardrail_triggered) {
+      content += `<div class="msg-guardrail">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        Citation guardrail triggered — answer was regenerated for accuracy.
+      </div>`;
+    }
+
+    // Meta info
+    content += `<div class="msg-meta">`;
+    if (data.latency_ms) content += `<span>⏱ ${data.latency_ms}ms</span>`;
+    if (data.top_score)  content += `<span>📊 score ${data.top_score.toFixed(3)}</span>`;
+    content += '</div>';
   }
 
-  showLoading();
+  row.innerHTML = `
+    <div class="msg-avatar">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+      </svg>
+    </div>
+    <div class="${bubbleClass}">${content}</div>
+  `;
+  messagesEl.appendChild(row);
+  scrollToBottom();
+}
+
+function addErrorMessage(errMsg) {
+  removeThinkingBubble();
+  addAIMessage({
+    found: true,
+    answer: null,
+    error: errMsg,
+    retrieved_chunks: [],
+    guardrail_triggered: false,
+    latency_ms: 0,
+    top_score: 0
+  });
+}
+
+// ── Query submission ──────────────────────────────────────────────────
+async function submitQuery() {
+  const question = queryInput.value.trim();
+  if (!question || isProcessing) return;
+
+  isProcessing = true;
+  sendBtn.disabled = true;
+
+  // Show user message
+  addUserMessage(question);
+  queryInput.value = '';
+  autoResize();
+
+  // Show thinking indicator
+  addThinkingBubble();
 
   try {
     const resp = await fetch('/query', {
@@ -211,47 +238,116 @@ async function submitQuery() {
     const data = await resp.json();
 
     if (!resp.ok) {
-      showError(data.detail || `Server error (HTTP ${resp.status})`);
+      addErrorMessage(data.detail || `Server error (HTTP ${resp.status})`);
       return;
     }
 
-    // Route to correct display state
-    if (!data.found) {
-      showNotFound(data.answer);
-    } else if (data.error && !data.answer) {
-      showError(data.answer || 'Service error — see server logs.');
-    } else {
-      showAnswer(data);
-    }
+    addAIMessage(data);
 
   } catch (err) {
-    showError(`Cannot reach the server. Is it running on port 8000? (${err.message})`);
+    addErrorMessage(`Cannot reach the server. Is it running on port 8000? (${err.message})`);
   } finally {
-    submitBtn.disabled = false;
+    isProcessing = false;
+    sendBtn.disabled = false;
   }
 }
 
-// ── Event listeners ───────────────────────────────────────────────────────────
-submitBtn.addEventListener('click', submitQuery);
+// ── New Chat ──────────────────────────────────────────────────────────
+function resetChat() {
+  // Remove all messages except the welcome screen
+  messagesEl.innerHTML = '';
+  // Rebuild the welcome screen
+  messagesEl.innerHTML = `
+    <div class="welcome" id="welcomeScreen">
+      <div class="welcome-icon">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+        </svg>
+      </div>
+      <h1 class="welcome-title">BEL Fault Code Assistant</h1>
+      <p class="welcome-sub">Ask me about any IRL fault code. I'll look it up in the knowledge base and give you a grounded answer — completely offline.</p>
+      <div class="welcome-chips">
+        <button class="welcome-chip" data-q="What does error code 0x0003 mean?">
+          <span class="wchip-icon">⚡</span>
+          <span class="wchip-text">What does 0x0003 mean?</span>
+        </button>
+        <button class="welcome-chip" data-q="What is a misfire error?">
+          <span class="wchip-icon">🔥</span>
+          <span class="wchip-text">What is a misfire error?</span>
+        </button>
+        <button class="welcome-chip" data-q="Explain error 0x0017">
+          <span class="wchip-icon">🔧</span>
+          <span class="wchip-text">Explain error 0x0017</span>
+        </button>
+        <button class="welcome-chip" data-q="What does throw range invalid mean?">
+          <span class="wchip-icon">📡</span>
+          <span class="wchip-text">What is throw range invalid?</span>
+        </button>
+      </div>
+    </div>
+  `;
+  bindWelcomeChips();
+  closeSidebar();
+}
+
+// ── Sidebar toggle (mobile) ──────────────────────────────────────────
+let overlay = null;
+
+function openSidebar() {
+  sidebar.classList.add('open');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.className = 'sidebar-overlay show';
+    overlay.addEventListener('click', closeSidebar);
+    document.body.appendChild(overlay);
+  } else {
+    overlay.classList.add('show');
+  }
+}
+
+function closeSidebar() {
+  sidebar.classList.remove('open');
+  if (overlay) overlay.classList.remove('show');
+}
+
+// ── Bind chip clicks ──────────────────────────────────────────────────
+function bindWelcomeChips() {
+  document.querySelectorAll('.welcome-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      queryInput.value = chip.dataset.q;
+      sendBtn.disabled = false;
+      submitQuery();
+    });
+  });
+}
+
+function bindSidebarChips() {
+  document.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      queryInput.value = chip.dataset.q;
+      sendBtn.disabled = false;
+      closeSidebar();
+      submitQuery();
+    });
+  });
+}
+
+// ── Event listeners ───────────────────────────────────────────────────
+sendBtn.addEventListener('click', submitQuery);
 
 queryInput.addEventListener('keydown', e => {
-  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+  if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     submitQuery();
   }
 });
 
-// Example chips
-document.querySelectorAll('.example-chip').forEach(chip => {
-  chip.addEventListener('click', () => {
-    queryInput.value = chip.dataset.q;
-    queryInput.focus();
-  });
-});
+if (menuBtn)       menuBtn.addEventListener('click', openSidebar);
+if (sidebarToggle) sidebarToggle.addEventListener('click', closeSidebar);
+if (newChatBtn)    newChatBtn.addEventListener('click', resetChat);
 
-// ── Init ──────────────────────────────────────────────────────────────────────
-populateTable();
+// ── Init ──────────────────────────────────────────────────────────────
+bindWelcomeChips();
+bindSidebarChips();
 checkHealth();
-
-// Re-check health every 30 seconds
 setInterval(checkHealth, 30_000);
