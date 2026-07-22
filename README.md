@@ -22,27 +22,19 @@ Authors: B V Hitesh Sai, Charan Gowda M D, Harsha B, Akshay
 
 Before you can use the system completely offline on the ship, you must run the setup script **one time** while connected to the internet. This will download the required AI models and install the necessary software.
 
-**Step-by-Step Instructions:**
-1. Click the Windows Start Menu and type **PowerShell**.
-2. Right-click on **Windows PowerShell** and select **Run as Administrator**.
-3. In the blue terminal window, type the following command to navigate to the project folder (assuming you placed the folder in your E: drive):
-   ```powershell
-   cd E:\BEL
-   ```
-4. Now, run the setup script by typing:
-   ```powershell
-   .\setup.ps1
-   ```
-   *(Note: If you get a red error about "Execution of scripts is disabled", type `Set-ExecutionPolicy Bypass -Scope Process -Force`, press Enter, and then try `.\setup.ps1` again).*
+**Zero-Typing Instructions:**
+1. Open the `E:\BEL\` folder.
+2. Double-click the file named **`First-Time-Setup.bat`**.
+3. A black terminal window will open and ask you to press any key to continue. Press any key.
 
 **What happens next?**
 The script will run automatically and do the following:
-* Create an isolated Python environment (`.venv`) so it doesn't break your computer's other software.
-* Install all required libraries (like FastAPI and PyTorch).
-* Download the AI models (`bge-small-en-v1.5` and `qwen2.5:3b`).
-* Read the `IRL Fault Codes.pdf` file and build the offline vector database.
+* Create an isolated Python environment so it doesn't break your computer's other software.
+* Install all required libraries.
+* Download the AI models to your local machine.
+* Build the offline vector database from the PDF manuals.
 
-Once it says "Setup Complete", you can disconnect from the internet forever.
+Once it says "SETUP COMPLETE!", you can close the window and disconnect from the internet forever.
 
 ---
 
