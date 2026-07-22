@@ -1,0 +1,6 @@
+# CODEOWNERS File
+# This file defines who must approve changes before they can be merged.
+# More details: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Require B V Hitesh Sai (@Hiteshsai007) to approve every change in the repository
+* @Hiteshsai007
