@@ -34,19 +34,21 @@ This script will:
 
 ---
 
-## Starting the Server
+## How to Use (For Ship Workers)
 
-```powershell
-# Activate the virtual environment
-.venv\Scripts\Activate.ps1
+The system has been configured for fully offline, one-click startup. No coding or terminal experience is required.
 
-# Start the server
-python -m app.main
-```
+### Option 1: Desktop Shortcuts (Easiest)
+There are two shortcuts located directly on the **Desktop**:
+1. **BEL AI Assistant**: Double-click this to open the beautiful Chatbot graphical interface (requires a web browser to be installed on the machine).
+2. **BEL AI Assistant (Terminal)**: Double-click this to open the command-line CLI interface. Use this if the machine is "bare metal" and has no web browser installed.
 
-Then open your browser at: **http://127.0.0.1:8000**
+### Option 2: Batch Files (From the Folder)
+If the shortcuts are missing, you can run the application directly from the `E:\BEL\` folder:
+1. Double-click `Launch.bat` (Starts the server and opens the Chatbot UI).
+2. Double-click `Launch-CLI.bat` (Opens the Terminal UI directly).
 
-> The server only listens on `127.0.0.1` — it is not accessible from other machines on the network.
+> Both options automatically activate the isolated Python environment and enforce offline security flags. No manual setup is needed.
 
 ---
 
