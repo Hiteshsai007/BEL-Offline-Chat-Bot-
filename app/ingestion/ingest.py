@@ -42,7 +42,9 @@ def _embed_chunks(chunks: list[dict]) -> np.ndarray:
     return np.array(vectors, dtype=np.float32)
 
 
-def _build_faiss_index(vectors: np.ndarray) -> "faiss.Index":
+from typing import Any
+
+def _build_faiss_index(vectors: np.ndarray) -> Any:
     import faiss  # type: ignore
 
     dim = vectors.shape[1]
