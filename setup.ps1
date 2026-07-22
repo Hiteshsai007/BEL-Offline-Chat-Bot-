@@ -42,6 +42,10 @@ Write-Host "      TRANSFORMERS_OFFLINE=1, HF_DATASETS_OFFLINE=1" -ForegroundColo
 Write-Host "[3/6] Installing Python dependencies ..." -ForegroundColor Yellow
 # Temporarily allow online for package install (first-time setup only)
 $env:TRANSFORMERS_OFFLINE = "0"
+# Install CPU-only PyTorch first (prevents DLL errors on PCs without NVIDIA GPU)
+Write-Host "      Installing PyTorch (CPU-only) ..." -ForegroundColor DarkGray
+pip install torch --index-url https://download.pytorch.org/whl/cpu --quiet
+Write-Host "      Installing remaining dependencies ..." -ForegroundColor DarkGray
 pip install -r requirements.txt --quiet
 $env:TRANSFORMERS_OFFLINE = "1"
 Write-Host "      Dependencies installed." -ForegroundColor Green
