@@ -1,6 +1,9 @@
 @echo off
-title BEL Offline AI CLI
+title BEL AI Assistant (Terminal)
 echo Starting BEL Offline AI CLI Interface...
+
+:: Navigate to the folder where this .bat file lives (handles any install location)
+cd /d "%~dp0"
 
 :: Set offline flags
 set TRANSFORMERS_OFFLINE=1
