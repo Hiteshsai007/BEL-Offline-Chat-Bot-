@@ -9,7 +9,6 @@ logs/
 *.log
 
 # Data and Models
-data/index/
 data/models/
 chunks.tmp.jsonl
 faiss.tmp

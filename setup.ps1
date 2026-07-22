@@ -16,7 +16,7 @@ Write-Host ""
 # ── Step 1: Create virtual environment ───────────────────────────────────────
 $VenvPath = Join-Path $Root ".venv"
 if (-not (Test-Path $VenvPath)) {
-    Write-Host "[1/6] Creating virtual environment at .venv ..." -ForegroundColor Yellow
+    Write-Host "[1/4] Creating virtual environment at .venv ..." -ForegroundColor Yellow
     python -m venv $VenvPath
     Write-Host "      Done." -ForegroundColor Green
 } else {

@@ -31,7 +31,6 @@ Before you can use the system completely offline on the ship, you must run the s
 The script will run automatically in the background and do the following:
 * **Set up the Engine**: It installs the background software needed to run the chatbot safely on your machine.
 * **Download the Brain**: It pulls down the offline AI models so they can run locally without the internet.
-* **Read the Manuals**: It scans the BEL fault code PDFs and memorizes them so the AI can answer your questions.
 
 Once it says "SETUP COMPLETE!", you can close the window and disconnect from the internet forever.
 
