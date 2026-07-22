@@ -28,11 +28,10 @@ Before you can use the system completely offline on the ship, you must run the s
 3. A black terminal window will open and ask you to press any key to continue. Press any key.
 
 **What happens next?**
-The script will run automatically and do the following:
-* Create an isolated Python environment so it doesn't break your computer's other software.
-* Install all required libraries.
-* Download the AI models to your local machine.
-* Build the offline vector database from the PDF manuals.
+The script will run automatically in the background and do the following:
+* **Set up the Engine**: It installs the background software needed to run the chatbot safely on your machine.
+* **Download the Brain**: It pulls down the offline AI models so they can run locally without the internet.
+* **Read the Manuals**: It scans the BEL fault code PDFs and memorizes them so the AI can answer your questions.
 
 Once it says "SETUP COMPLETE!", you can close the window and disconnect from the internet forever.
 
