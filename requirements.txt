@@ -1,0 +1,13 @@
+# BEL Offline AI Interface — Python Dependencies
+# Install offline: pip install --no-index --find-links=./wheels -r requirements.txt
+# Or online (first-time setup only): pip install -r requirements.txt
+
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+faiss-cpu>=1.8.0
+sentence-transformers>=3.1.0
+pdfplumber>=0.11.0
+pymupdf>=1.24.0
+httpx>=0.27.0
+pyyaml>=6.0
+python-multipart>=0.0.9

@@ -1,0 +1,48 @@
+# BEL Offline AI Interface — Central Configuration
+# All tunables live here. No code changes needed for common adjustments.
+
+model:
+  # Ollama model tag — change to upgrade LLM without touching code
+  ollama_tag: "qwen2.5:7b-instruct"
+  # Ollama listens on loopback ONLY (Section 12 — no remote inference)
+  ollama_url: "http://127.0.0.1:11434"
+  temperature: 0.1
+  max_tokens: 512
+  # Timeout for a single LLM call (seconds)
+  timeout_seconds: 60
+
+embedding:
+  # Offline-distributable model — weights pre-downloaded at setup
+  model_name: "BAAI/bge-small-en-v1.5"
+  # CPU-only: preserve all GPU VRAM for Ollama (Section 11)
+  device: "cpu"
+  # BGE models benefit from this query prefix
+  query_prefix: "Represent this sentence for searching relevant passages: "
+
+retrieval:
+  # Over-fetch for re-ranking, then trim to return_n
+  top_k: 10
+  # Cosine similarity threshold — drop candidates below this score
+  confidence_threshold: 0.50
+  # Number of chunks passed as context to the LLM
+  return_n: 3
+  # Regex pattern to trigger exact error-code direct lookup (bypasses embedding)
+  error_code_pattern: "0x[0-9a-fA-F]{4}"
+
+paths:
+  faiss_index: "data/index/faiss.index"
+  chunks_store: "data/index/chunks.jsonl"
+  session_db: "data/session.db"
+  log_file: "logs/app.log"
+  # Source PDF for ingestion
+  source_pdf: "IRL Fault Codes.pdf"
+
+server:
+  # Loopback only — not accessible from other machines (Section 12)
+  host: "127.0.0.1"
+  port: 8000
+
+logging:
+  level: "INFO"
+  max_bytes: 10485760  # 10 MB
+  backup_count: 3

@@ -1,0 +1,23 @@
+# Environments
+.venv/
+.env
+
+# Cache and logs
+__pycache__/
+*.pyc
+logs/
+*.log
+
+# Data and Models
+data/index/
+data/models/
+chunks.tmp.jsonl
+faiss.tmp
+
+# IDEs
+.vscode/
+.idea/
+
+# OS specific
+.DS_Store
+Thumbs.db
