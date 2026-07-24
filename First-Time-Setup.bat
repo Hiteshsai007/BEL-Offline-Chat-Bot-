@@ -1,30 +1,46 @@
 @echo off
-title BEL Offline AI - First Time Setup
+title BEL Offline AI - Cross-Platform Bootstrap
 color 0B
 
-echo =======================================================
-echo          BEL Offline AI - First Time Setup
-echo =======================================================
-echo.
-echo IMPORTANT: You must be connected to the internet for this step.
-echo This script will download the AI models and set up the Python environment.
-echo Once this finishes, the system will be 100%% offline forever.
-echo.
-pause
-
-echo.
-echo Running setup... Please wait, this may take a few minutes...
+echo ============================================================
+echo   BEL Offline AI Technical Assistant -- Setup (Windows)
+echo ============================================================
 echo.
 
-:: Run the PowerShell setup script and bypass execution policies automatically
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup.ps1"
+:: Try to find Python
+where python >nul 2>nul
+if %errorlevel% neq 0 (
+    echo ERROR: Python was not found in your PATH.
+    echo.
+    echo Please install Python 3.11 or later from https://www.python.org/downloads/
+    echo Make sure to check "Add Python to PATH" during installation.
+    echo.
+    pause
+    exit /b 1
+)
 
-echo.
-echo =======================================================
-echo SETUP COMPLETE!
-echo =======================================================
-echo You can now disconnect from the internet forever.
-echo Close this window and double-click the "BEL AI Assistant" 
-echo shortcut on your Desktop to launch the system!
-echo.
-pause
+:: Run the bootstrap script
+python "%~dp0bootstrap.py" %*
+set "exit_code=%errorlevel%"
+
+if %exit_code% equ 0 (
+    echo.
+    echo ============================================================
+    echo   SETUP COMPLETE!
+    echo.
+    echo   You can now disconnect from the internet forever.
+    echo.
+    echo   Launch options:
+    echo     Launch.bat          (Web UI -- opens browser)
+    echo     Launch-CLI.bat      (Terminal interface)
+    echo ============================================================
+    echo.
+    pause
+) else (
+    echo.
+    echo Setup failed! Please review the error messages above.
+    echo.
+    pause
+)
+
+exit /b %exit_code%

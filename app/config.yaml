@@ -3,7 +3,7 @@
 
 model:
   # Ollama model tag — change to upgrade LLM without touching code
-  ollama_tag: "qwen2.5:7b-instruct"
+  ollama_tag: "qwen2.5:3b"
   # Ollama listens on loopback ONLY (Section 12 — no remote inference)
   ollama_url: "http://127.0.0.1:11434"
   temperature: 0.1

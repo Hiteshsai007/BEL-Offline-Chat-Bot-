@@ -1,5 +1,6 @@
 # Environments
 .venv/
+test_venv/
 .env
 
 # Cache and logs
