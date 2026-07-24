@@ -161,6 +161,31 @@ def _venv_pip() -> Path:
 def _in_venv() -> bool:
     return sys.prefix != sys.base_prefix
 
+def _find_executable(name: str) -> Optional[str]:
+    """Find an executable in PATH or common fallback locations."""
+    path = shutil.which(name)
+    if path:
+        return path
+    
+    # Fallback to standard installation paths that might not be in the current process PATH
+    if IS_LINUX:
+        for base in ("/usr/local/bin", "/usr/bin", "/bin", "/opt/bin"):
+            p = Path(base) / name
+            if p.exists() and os.access(p, os.X_OK):
+                return str(p)
+        p = Path.home() / ".local" / "bin" / name
+        if p.exists() and os.access(p, os.X_OK):
+            return str(p)
+    elif IS_WINDOWS:
+        local_app = os.environ.get("LOCALAPPDATA")
+        if local_app:
+            # winget standard install locations
+            for sub in (["Programs", name.capitalize()], ["Microsoft", "WindowsApps"]):
+                p = Path(local_app).joinpath(*sub) / f"{name}.exe"
+                if p.exists() and os.access(p, os.X_OK):
+                    return str(p)
+    return None
+
 # ---------------------------------------------------------------------------
 # FR-1  OS Detection
 # ---------------------------------------------------------------------------
@@ -239,9 +264,9 @@ def check_pytorch() -> Result:
     return Result("PyTorch", Status.ABSENT, Status.ABSENT)
 
 def check_ollama_binary() -> Result:
-    path = shutil.which("ollama")
+    path = _find_executable("ollama")
     if path:
-        r = _run(["ollama", "--version"])
+        r = _run([path, "--version"])
         ver = r.stdout.strip() if r.returncode == 0 else "unknown"
         return Result("Ollama Binary", Status.PRESENT, Status.PRESENT, ver)
     return Result("Ollama Binary", Status.ABSENT, Status.ABSENT)
@@ -337,13 +362,17 @@ def install_ollama(os_info: dict) -> Result:
     chk = check_ollama_binary()
     if chk.before == Status.PRESENT:
         return chk
+    
+    success = False
+    action = ""
     if IS_LINUX:
         log.info("Installing Ollama via install script ...")
         r = _run(["bash", "-c", "curl -fsSL https://ollama.com/install.sh | sh"])
         if r.returncode == 0:
-            return Result("Ollama Binary", Status.ABSENT, Status.INSTALLED,
-                          action="curl install.sh | sh")
-        return Result("Ollama Binary", Status.ABSENT, Status.FAILED, detail=r.stderr[:300])
+            success = True
+            action = "curl install.sh | sh"
+        else:
+            return Result("Ollama Binary", Status.ABSENT, Status.FAILED, detail=r.stderr[:300])
     elif IS_WINDOWS:
         pm = os_info.get("pkg_manager")
         if pm == "winget":
@@ -351,29 +380,43 @@ def install_ollama(os_info: dict) -> Result:
             r = _run(["winget", "install", "Ollama.Ollama",
                        "--accept-source-agreements", "--accept-package-agreements"])
             if r.returncode == 0:
-                return Result("Ollama Binary", Status.ABSENT, Status.INSTALLED,
-                              action="winget install Ollama.Ollama")
-        return Result("Ollama Binary", Status.ABSENT, Status.FAILED,
-                      detail="Install Ollama manually from https://ollama.com/download")
-    return Result("Ollama Binary", Status.ABSENT, Status.FAILED, detail="Unsupported OS")
+                success = True
+                action = "winget install Ollama.Ollama"
+            else:
+                return Result("Ollama Binary", Status.ABSENT, Status.FAILED, detail=r.stderr[:300])
+        else:
+            return Result("Ollama Binary", Status.ABSENT, Status.FAILED,
+                          detail="Install Ollama manually from https://ollama.com/download")
+    else:
+        return Result("Ollama Binary", Status.ABSENT, Status.FAILED, detail="Unsupported OS")
+        
+    if success:
+        if not _find_executable("ollama"):
+            return Result("Ollama Binary", Status.ABSENT, Status.FAILED,
+                          detail="installed but not found - PATH issue?")
+        return Result("Ollama Binary", Status.ABSENT, Status.INSTALLED, action=action)
+    return Result("Ollama Binary", Status.ABSENT, Status.FAILED, detail="Unknown failure")
 
 def start_ollama_service() -> Result:
     chk = check_ollama_service()
     if chk.before == Status.PRESENT:
         return chk
-    if not shutil.which("ollama"):
+    
+    ollama_bin = _find_executable("ollama")
+    if not ollama_bin:
         return Result("Ollama Service", Status.ABSENT, Status.FAILED,
                       detail="Ollama binary not found")
+        
     log.info("Starting Ollama service ...")
     if IS_WINDOWS:
-        subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL,
+        subprocess.Popen([ollama_bin, "serve"], stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL,
                          creationflags=subprocess.CREATE_NO_WINDOW)
     else:
-        subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL,
+        subprocess.Popen([ollama_bin, "serve"], stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, start_new_session=True)
     # Wait for service to become ready
-    for _ in range(15):
+    for _ in range(1500000000):
         time.sleep(1)
         if check_ollama_service().before == Status.PRESENT:
             return Result("Ollama Service", Status.ABSENT, Status.INSTALLED,
@@ -389,8 +432,14 @@ def pull_model() -> Result:
     if check_ollama_service().before != Status.PRESENT:
         return Result(f"Model ({tag})", Status.ABSENT, Status.FAILED,
                       detail="Ollama service not running")
+                      
+    ollama_bin = _find_executable("ollama")
+    if not ollama_bin:
+        return Result(f"Model ({tag})", Status.ABSENT, Status.FAILED,
+                      detail="Ollama binary not found")
+                      
     log.info("Pulling model %s ...", tag)
-    r = _run(["ollama", "pull", tag])
+    r = _run([ollama_bin, "pull", tag])
     if r.returncode == 0:
         return Result(f"Model ({tag})", Status.ABSENT, Status.INSTALLED, tag,
                       action=f"ollama pull {tag}")

@@ -1,0 +1,63 @@
+
+[96m================================================================[0m
+  [1mBEL Offline AI Technical Assistant -- Bootstrap[0m
+[96m================================================================[0m
+
+  OS: [1mLinux 6.18.33.2-microsoft-standard-WSL2[0m  (x86_64)
+  Package manager: apt
+
+[96m[1/8][0m [1mChecking Python version[0m
+  [92mOK[0m Python 3.12.3
+
+[96m[2/8][0m [1mChecking virtual environment[0m
+  [92mOK[0m Virtual environment exists
+
+[96m[3/8][0m [1mChecking PyTorch[0m
+  [92mOK[0m PyTorch 2.13.0+cpu
+
+[96m[4/8][0m [1mChecking pip packages (requirements.txt)[0m
+  [92mOK[0m All packages satisfied (9 packages)
+
+[96m[5/8][0m [1mChecking Ollama runtime[0m
+  [92mOK[0m Ollama binary found ()
+
+[96m[6/8][0m [1mChecking Ollama service[0m
+  [92mOK[0m Ollama service is running
+
+[96m[7/8][0m [1mChecking LLM model (qwen2.5:3b)[0m
+  [92mOK[0m Model ready: qwen2.5:3b
+
+[96m[8/8][0m [1mChecking embedding model[0m
+  [92mOK[0m Embedding model cached: BAAI/bge-small-en-v1.5
+
+  Completed in 161.5s
+
+================================================================
+  Component              Status               Action / Detail
+  --------------------   ----------------     ------------------------
+  Python                 [92mPRESENT  [0m  3.12.3
+  Virtual Env            [92mPRESENT  [0m  /tmp/test-bel/.venv
+  PyTorch                [92mINSTALLED[0m  pip install torch (CPU)
+  pip Packages           [92mINSTALLED[0m  pip install -r requirements.txt
+  Ollama Binary          [92mINSTALLED[0m  curl install.sh | sh
+  Ollama Service         [92mPRESENT  [0m  running
+  Model (qwen2.5:3b)     [92mINSTALLED[0m  ollama pull qwen2.5:3b
+  Embedding Model        [92mPRESENT  [0m  BAAI/bge-small-en-v1.5
+================================================================
+
+  [92m[1mAll checks passed. System is ready.[0m
+
+  Log: /tmp/test-bel/logs/bootstrap.log
+
+[96m================================================================[0m
+  [1mBEL Offline AI Technical Assistant -- Bootstrap[0m
+[96m================================================================[0m
+
+  OS: [1mLinux 6.18.33.2-microsoft-standard-WSL2[0m  (x86_64)
+  Package manager: apt
+
+[96m[1/8][0m [1mChecking Python version[0m
+  [92mOK[0m Python 3.12.3
+
+[96m[2/8][0m [1mChecking virtual environment[0m
+  [92mOK[0m Virtual environment created
