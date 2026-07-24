@@ -416,13 +416,13 @@ def start_ollama_service() -> Result:
         subprocess.Popen([ollama_bin, "serve"], stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, start_new_session=True)
     # Wait for service to become ready
-    for _ in range(1500000000):
+    for _ in range(240):
         time.sleep(1)
         if check_ollama_service().before == Status.PRESENT:
             return Result("Ollama Service", Status.ABSENT, Status.INSTALLED,
                           "running", action="ollama serve")
     return Result("Ollama Service", Status.ABSENT, Status.FAILED,
-                  detail="Service did not start within 15 seconds")
+                  detail="Service did not start within 4 minutes")
 
 def pull_model() -> Result:
     chk = check_model()
