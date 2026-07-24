@@ -13,7 +13,7 @@ Authors: B V Hitesh Sai, Charan Gowda M D, Harsha B, Akshay
 | Python | 3.11 or later |
 | GPU | ≥ 4 GB VRAM (NVIDIA recommended) |
 | Ollama | Installed and running |
-| OS | Windows 10/11 |
+| OS | Windows 10/11 or Linux (Ubuntu/Debian) |
 | Network | Not required after first setup |
 
 ---
@@ -22,10 +22,18 @@ Authors: B V Hitesh Sai, Charan Gowda M D, Harsha B, Akshay
 
 Before you can use the system completely offline on the ship, you must run the setup script **one time** while connected to the internet. This will download the required AI models and install the necessary software.
 
-**Zero-Typing Instructions:**
+### Windows Setup (Zero-Typing Instructions)
 1. Open the `E:\BEL\` folder.
 2. Double-click the file named **`First-Time-Setup.bat`**.
 3. A black terminal window will open and ask you to press any key to continue. Press any key.
+
+### Linux Setup
+1. Open a terminal and navigate to the `BEL` folder.
+2. Make the script executable and run it:
+   ```bash
+   chmod +x setup.sh
+   ./setup.sh
+   ```
 
 **What happens next?**
 The script will run automatically in the background and do the following:
@@ -45,12 +53,18 @@ There are two shortcuts located directly on the **Desktop**:
 1. **BEL AI Assistant**: Double-click this to open the beautiful Chatbot graphical interface (requires a web browser to be installed on the machine).
 2. **BEL AI Assistant (Terminal)**: Double-click this to open the command-line CLI interface. Use this if the machine is "bare metal" and has no web browser installed.
 
-### Option 2: Batch Files (From the Folder)
-If the shortcuts are missing, you can run the application directly from the `E:\BEL\` folder:
+### Option 2: Launcher Scripts (From the Folder)
+If the shortcuts are missing, you can run the application directly from the folder:
+
+**Windows:**
 1. Double-click `Launch.bat` (Starts the server and opens the Chatbot UI).
 2. Double-click `Launch-CLI.bat` (Opens the Terminal UI directly).
 
-> Both options automatically activate the isolated Python environment and enforce offline security flags. No manual setup is needed.
+**Linux:**
+1. Run `./launch.sh` in the terminal (Starts the server and opens the Chatbot UI).
+2. Run `./launch-cli.sh` in the terminal (Opens the Terminal UI directly).
+
+> All options automatically activate the isolated Python environment and enforce offline security flags. No manual setup is needed.
 
 ---
 
@@ -58,10 +72,19 @@ If the shortcuts are missing, you can run the application directly from the `E:\
 
 When a new version of `IRL Fault Codes.pdf` is available:
 
+**Windows:**
 ```powershell
-# Place the new PDF in e:\BEL\
-# Then re-run ingestion:
-python -m app.ingestion.ingest
+# Place the new PDF in the BEL folder
+# Then re-run ingestion from an activated environment:
+.\.venv\Scripts\python -m app.ingestion.ingest
+```
+
+**Linux:**
+```bash
+# Place the new PDF in the BEL folder
+# Then re-run ingestion from an activated environment:
+source .venv/bin/activate
+python3 -m app.ingestion.ingest
 ```
 
 The index is rebuilt atomically — the running server is unaffected until the reload endpoint is called:
@@ -103,7 +126,13 @@ e:\BEL\
 ├── logs\
 │   └── app.log              ← rotating local log
 ├── requirements.txt
-├── setup.ps1
+├── setup.ps1                ← Windows setup script
+├── setup.sh                 ← Linux setup script
+├── bootstrap.py             ← Cross-platform setup logic
+├── Launch.bat               ← Windows UI launcher
+├── Launch-CLI.bat           ← Windows CLI launcher
+├── launch.sh                ← Linux UI launcher
+├── launch-cli.sh            ← Linux CLI launcher
 └── README.md
 ```
 
