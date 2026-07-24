@@ -12,6 +12,8 @@ Authors: B V Hitesh Sai, Charan Gowda M D, Harsha B, Akshay
 |---|---|
 | Python | 3.11 or later |
 | GPU | ≥ 4 GB VRAM (NVIDIA recommended) |
+| RAM | ≥ 8 GB system memory |
+| Disk Space | ≥ 6 GB free on the drive where BEL is installed (for the AI model, Python packages, and temporary download files) |
 | Ollama | Installed and running |
 | OS | Windows 10/11 or Linux (Ubuntu/Debian) |
 | Network | Not required after first setup |
