@@ -27,13 +27,63 @@ Before you can use the system completely offline on the ship, you must run the s
 2. Double-click the file named **`First-Time-Setup.bat`**.
 3. A black terminal window will open and ask you to press any key to continue. Press any key.
 
-### Linux Setup
-1. Open a terminal and navigate to the `BEL` folder.
-2. Make the script executable and run it:
-   ```bash
+### Linux Setup (Step-by-Step)
+
+1. **Open a terminal.**
+   Most Linux desktops: right-click on the desktop or in the file manager and
+   choose "Open Terminal here," or find "Terminal" in the applications menu.
+
+2. **Navigate to the BEL folder.**
+```bash
+   cd /path/to/BEL
+```
+   (Replace `/path/to/BEL` with wherever the folder was copied to, e.g. `~/BEL`
+   or `/opt/BEL`.)
+
+3. **Check free disk space before starting.**
+   The setup needs at least **6 GB free** on this drive (for the AI model,
+   the software packages, and temporary files during download).
+```bash
+   df -h .
+```
+   Look at the "Avail" column for the drive the BEL folder is on. If it shows
+   less than 6 GB, free up space first — the setup will fail partway through
+   and may need to be re-run from a clean state if it doesn't.
+
+4. **Make the setup script runnable.**
+```bash
    chmod +x setup.sh
+```
+   (This only needs to be done once — it gives the script permission to run.)
+
+5. **Run the setup script.**
+```bash
    ./setup.sh
-   ```
+```
+   You may be asked for your password partway through — this is normal, since
+   installing some components (like Ollama) requires administrator
+   permission. Type your password and press Enter (nothing will appear on
+   screen as you type — that's expected).
+
+6. **Wait for it to finish.**
+   The script runs automatically and will:
+   - Install any missing system packages
+   - Set up an isolated Python environment
+   - Download the offline AI model and embedding model
+   - Build the fault-code search index
+
+   This can take several minutes depending on internet speed — do not close
+   the terminal window during this step.
+
+7. **Look for the completion message.**
+   When you see `SETUP COMPLETE!`, the setup finished successfully. You can
+   now disconnect from the internet permanently — the assistant will keep
+   working fully offline from here on.
+
+**If setup fails partway through:** re-check step 3 (free disk space) first —
+this is the most common cause of a failed setup. If space was the issue, free
+up space and simply run `./setup.sh` again; it will skip anything that
+already installed successfully and only retry what failed.
 
 **What happens next?**
 The script will run automatically in the background and do the following:
