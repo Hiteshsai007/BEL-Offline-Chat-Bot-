@@ -1,0 +1,12 @@
+# Force LF for shell scripts and Python, regardless of OS checkout settings
+*.sh text eol=lf
+*.py text eol=lf
+bootstrap.py text eol=lf
+
+# Let Windows-only files use CRLF normally
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Don't touch binary files
+*.pdf binary
+*.index binary
