@@ -34,10 +34,15 @@ log = get_logger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
 
+# Module-level readiness flag set by lifespan (finding H-7)
+_startup_ready = False
+
 
 # ── Lifespan: warm up retriever & embedder on startup ──────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _startup_ready
+    _startup_ready = False
     log.info("BEL Offline AI Interface starting …")
     try:
         from app.rag.retriever import get_retriever
@@ -45,6 +50,7 @@ async def lifespan(app: FastAPI):
         from app.rag.embedder import get_embedder
         get_embedder()           # loads BGE model onto CPU
         log.info("Retriever and embedder ready.")
+        _startup_ready = True
     except FileNotFoundError as e:
         log.warning("Startup warning: %s", e)
         log.warning("Run ingestion first: python -m app.ingestion.ingest")
@@ -185,7 +191,8 @@ async def health() -> JSONResponse:
         status["ollama"] = "unreachable"
 
     overall = (
-        status["index_exists"]
+        _startup_ready
+        and status["index_exists"]
         and status["ollama"] == "ok"
         and status.get("model_pulled", False)
     )
