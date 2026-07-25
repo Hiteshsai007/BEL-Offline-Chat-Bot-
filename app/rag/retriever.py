@@ -13,7 +13,6 @@ import re
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
@@ -50,6 +49,8 @@ class Retriever:
     ) -> None:
         import faiss  # type: ignore
 
+        self._lock = threading.Lock()
+
         if not index_path.exists():
             raise FileNotFoundError(
                 f"FAISS index not found at {index_path}. "
@@ -67,6 +68,13 @@ class Retriever:
 
         self._chunks = load_chunks(chunks_path)
         log.info("Loaded %d chunks from %s", len(self._chunks), chunks_path)
+
+        # Assert len(self._chunks) == self._index.ntotal after every load/reload
+        if len(self._chunks) != self._index.ntotal:
+            raise ValueError(
+                f"Fidelity violation: index has {self._index.ntotal} vectors but chunks store has "
+                f"{len(self._chunks)} chunks."
+            )
 
         # Build error-code lookup for O(1) exact matches
         self._code_index: dict[str, list[dict]] = {}
@@ -124,32 +132,45 @@ class Retriever:
         Retrieve relevant chunks for a query.
         Returns an empty list if nothing clears the confidence threshold.
         """
-        # Try exact code match first (FR-3)
-        exact = self._exact_lookup(query)
-        if exact:
-            log.info("Exact code match for query '%s': %d chunk(s)", query[:60], len(exact))
-            return exact
+        with self._lock:
+            # Try exact code match first (FR-3)
+            exact = self._exact_lookup(query)
+            if exact:
+                log.info("Exact code match for query '%s': %d chunk(s)", query[:60], len(exact))
+                return exact
 
-        # Semantic search (FR-2)
-        semantic = self._semantic_search(query)
-        log.info(
-            "Semantic search for '%s': %d chunk(s) above threshold %.2f",
-            query[:60], len(semantic), CONFIDENCE_THRESHOLD,
-        )
-        return semantic
+            # Semantic search (FR-2)
+            semantic = self._semantic_search(query)
+            log.info(
+                "Semantic search for '%s': %d chunk(s) above threshold %.2f",
+                query[:60], len(semantic), CONFIDENCE_THRESHOLD,
+            )
+            return semantic
 
     def reload(self) -> None:
         """Hot-reload the index and chunk store (after re-ingestion)."""
         import faiss  # type: ignore
 
-        self._index = faiss.read_index(str(FAISS_INDEX_PATH))
-        self._chunks = load_chunks(CHUNKS_STORE_PATH)
-        self._code_index = {}
-        for chunk in self._chunks:
-            code = (chunk.get("error_code") or "").lower()
-            if code:
-                self._code_index.setdefault(code, []).append(chunk)
-        log.info("Retriever reloaded: %d vectors, %d chunks", self._index.ntotal, len(self._chunks))
+        with self._lock:
+            new_index = faiss.read_index(str(FAISS_INDEX_PATH))
+            new_chunks = load_chunks(CHUNKS_STORE_PATH)
+
+            if len(new_chunks) != new_index.ntotal:
+                raise ValueError(
+                    f"Fidelity violation: index has {new_index.ntotal} vectors but chunks store has "
+                    f"{len(new_chunks)} chunks."
+                )
+
+            self._index = new_index
+            self._chunks = new_chunks
+
+            self._code_index = {}
+            for chunk in self._chunks:
+                code = (chunk.get("error_code") or "").lower()
+                if code:
+                    self._code_index.setdefault(code, []).append(chunk)
+
+            log.info("Retriever reloaded: %d vectors, %d chunks", self._index.ntotal, len(self._chunks))
 
 
 def get_retriever() -> Retriever:

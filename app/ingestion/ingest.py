@@ -11,6 +11,7 @@ import shutil
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -42,13 +43,11 @@ def _embed_chunks(chunks: list[dict]) -> np.ndarray:
     return np.array(vectors, dtype=np.float32)
 
 
-from typing import Any
-
 def _build_faiss_index(vectors: np.ndarray) -> Any:
     import faiss  # type: ignore
 
     dim = vectors.shape[1]
-    n   = vectors.shape[0]
+    n = vectors.shape[0]
 
     if n < 100:
         # Small corpus: flat L2 index (exact search, no quantisation needed)
@@ -121,21 +120,63 @@ def run_ingestion(pdf_path: Path) -> bool:
         log.error("FAISS index build failed: %s", e)
         return False
 
-    # ── 6. Atomic save (chunks + index written to tmp, then swapped) ──
+    # ── 6. Atomic save (chunks + index written to tmp, then swapped with rollback) ──
     tmp_chunks = CHUNKS_STORE_PATH.with_suffix(".tmp.jsonl")
-    tmp_index  = FAISS_INDEX_PATH.with_suffix(".tmp")
+    tmp_index = FAISS_INDEX_PATH.with_suffix(".tmp")
+
+    bak_chunks = CHUNKS_STORE_PATH.with_suffix(".bak")
+    bak_index = FAISS_INDEX_PATH.with_suffix(".bak")
+
+    chunks_backed_up = False
+    index_backed_up = False
+    chunks_moved = False
+    index_moved = False
 
     try:
         save_chunks(chunks, tmp_chunks)
         _save_faiss_index(index, tmp_index)
 
-        # Atomic swap
+        # 1. Back up existing files if they exist
+        if CHUNKS_STORE_PATH.exists():
+            shutil.move(str(CHUNKS_STORE_PATH), str(bak_chunks))
+            chunks_backed_up = True
+        if FAISS_INDEX_PATH.exists():
+            shutil.move(str(FAISS_INDEX_PATH), str(bak_index))
+            index_backed_up = True
+
+        # Ensure parent directories exist
         CHUNKS_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
         FAISS_INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+        # 2. Move new files into place
         shutil.move(str(tmp_chunks), str(CHUNKS_STORE_PATH))
-        shutil.move(str(tmp_index),  str(FAISS_INDEX_PATH))
+        chunks_moved = True
+        shutil.move(str(tmp_index), str(FAISS_INDEX_PATH))
+        index_moved = True
+
+        # 3. Clean up backup files on success
+        if chunks_backed_up and bak_chunks.exists():
+            bak_chunks.unlink()
+        if index_backed_up and bak_index.exists():
+            bak_index.unlink()
+
     except Exception as e:
-        log.error("Save/swap failed: %s", e)
+        log.error("Save/swap failed, rolling back: %s", e)
+        # Roll back chunks
+        if chunks_moved:
+            if CHUNKS_STORE_PATH.exists():
+                CHUNKS_STORE_PATH.unlink()
+        if chunks_backed_up:
+            shutil.move(str(bak_chunks), str(CHUNKS_STORE_PATH))
+
+        # Roll back index
+        if index_moved:
+            if FAISS_INDEX_PATH.exists():
+                FAISS_INDEX_PATH.unlink()
+        if index_backed_up:
+            shutil.move(str(bak_index), str(FAISS_INDEX_PATH))
+
+        # Cleanup tmp files
         for f in [tmp_chunks, tmp_index]:
             if f.exists():
                 f.unlink()
