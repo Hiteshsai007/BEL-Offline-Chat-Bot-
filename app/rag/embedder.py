@@ -29,8 +29,11 @@ os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 
-from app.logger import get_logger
-from app.settings import EMBED_DEVICE, EMBED_MODEL, QUERY_PREFIX
+# E402: these imports must follow the os.environ.setdefault calls above --
+# app.settings/app.logger pull in modules that can trigger HF resolution, so
+# the offline switches have to be armed first. Suppression is deliberate.
+from app.logger import get_logger  # noqa: E402
+from app.settings import EMBED_DEVICE, EMBED_MODEL, QUERY_PREFIX  # noqa: E402
 
 log = get_logger(__name__)
 
