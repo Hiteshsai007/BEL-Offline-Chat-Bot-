@@ -105,7 +105,7 @@ def test_atomic_swap_rollback_on_failure(tmp_path, monkeypatch):
     # so we don't do real ingestion but trigger the swap.
     monkeypatch.setattr("app.ingestion.ingest.parse_pdf", lambda path: {"rows": [], "source_hash": "123"})
     monkeypatch.setattr("app.ingestion.ingest.build_chunks", lambda res, name: [{"chunk_id": "1"}])
-    monkeypatch.setattr("app.ingestion.ingest.validate_chunks", lambda chunks, res: [])
+    monkeypatch.setattr("app.ingestion.ingest.validate_chunks", lambda chunks, res: ([], []))
     monkeypatch.setattr("app.ingestion.ingest._embed_chunks", lambda chunks: np.zeros((1, 384), dtype=np.float32))
     monkeypatch.setattr("app.ingestion.ingest._build_faiss_index", lambda vecs: faiss.IndexFlatIP(384))
     monkeypatch.setattr("app.ingestion.ingest.save_chunks", lambda chunks, path: path.write_text("new chunks"))

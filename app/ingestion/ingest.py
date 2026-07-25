@@ -100,7 +100,10 @@ def run_ingestion(pdf_path: Path) -> bool:
         return False
 
     # ── 3. Validate fidelity (pre-embed) ─────────────────────────
-    errors = validate_chunks(chunks, parse_result)
+    warnings, errors = validate_chunks(chunks, parse_result)
+    if warnings:
+        for w in warnings:
+            log.warning("Validation warning: %s", w)
     if errors:
         log.error("Fidelity validation FAILED — aborting index build.")
         log.error("Fix the issues above before re-running ingestion.")
