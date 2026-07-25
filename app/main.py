@@ -93,6 +93,15 @@ async def serve_ui():
     return FileResponse(str(index_path))
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon() -> FileResponse:
+    """Serve the app favicon so browsers receive 200 instead of a noisy 404."""
+    icon_path = STATIC_DIR / "favicon.ico"
+    if not icon_path.exists():
+        raise HTTPException(status_code=404, detail="favicon.ico not found")
+    return FileResponse(str(icon_path), media_type="image/x-icon")
+
+
 @app.post("/query", response_model=QueryResponse)
 async def query_endpoint(req: QueryRequest):
     """
