@@ -20,7 +20,7 @@ import httpx
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.logger import get_logger
 from app.rag.pipeline import query as rag_query
@@ -64,8 +64,20 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 # ── Request / Response models ───────────────────────────────────────────────
+# Upper bound on an inbound question (finding S-3).
+# 2000 chars is ~16x the longest entry in the fault-code corpus (124 chars) and
+# far beyond any realistic plain-language lookup, so it never constrains
+# legitimate use. Without a bound, an arbitrarily large body is fed straight
+# into SentenceTransformer.encode() and then concatenated into the Ollama
+# prompt — a cheap local denial of service.
+MAX_QUESTION_CHARS = 2000
+
+
 class QueryRequest(BaseModel):
-    question: str
+    # min_length=1 rejects the empty string at the validation layer; the
+    # handler additionally strips whitespace-only input, which min_length
+    # cannot catch.
+    question: str = Field(..., min_length=1, max_length=MAX_QUESTION_CHARS)
 
 
 class ChunkInfo(BaseModel):
