@@ -99,8 +99,8 @@ def test_atomic_swap_rollback_on_failure(tmp_path, monkeypatch):
     original_index_path.write_text("original index", encoding="utf-8")
 
     # Patch paths in ingest settings
-    monkeypatch.setattr(settings, "CHUNKS_STORE_PATH", original_chunks_path)
-    monkeypatch.setattr(settings, "FAISS_INDEX_PATH", original_index_path)
+    monkeypatch.setattr("app.ingestion.ingest.CHUNKS_STORE_PATH", original_chunks_path)
+    monkeypatch.setattr("app.ingestion.ingest.FAISS_INDEX_PATH", original_index_path)
 
     # Let's mock _embed_chunks, parse_pdf, validate_chunks, _build_faiss_index, and save_chunks
     # so we don't do real ingestion but trigger the swap.
@@ -116,7 +116,7 @@ def test_atomic_swap_rollback_on_failure(tmp_path, monkeypatch):
     original_move = shutil.move
 
     def mock_move(src, dst):
-        if "faiss.index" in str(dst) and "tmp" in str(src):
+        if "faiss.index" in str(dst) and "faiss.tmp" in str(src):
             raise IOError("Simulated disk error during index move!")
         return original_move(src, dst)
 
