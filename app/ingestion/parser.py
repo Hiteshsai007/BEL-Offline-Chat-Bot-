@@ -38,7 +38,7 @@ def _extract_with_pdfplumber(path: Path) -> list[dict[str, Any]]:
 
     rows: list[dict[str, Any]] = []
     footnotes: list[str] = []
-    
+
     # Persist column indices across pages
     idx_sl, idx_desc, idx_rem, idx_code = None, None, None, None
 
@@ -48,18 +48,19 @@ def _extract_with_pdfplumber(path: Path) -> list[dict[str, Any]]:
             for table in tables:
                 if not table:
                     continue
-                    
+
                 header = [_clean(c) for c in (table[0] or [])]
-                
+
                 # Check if this row looks like a header
                 is_header_row = any(
                     kw in " ".join(header).lower()
                     for kw in ("error code", "sl", "error description")
                 )
-                
+
                 start_idx = 0
                 if is_header_row:
                     start_idx = 1
+
                     # Map header names to column indices
                     def col(keywords: list[str]) -> int | None:
                         for i, h in enumerate(header):
@@ -67,9 +68,9 @@ def _extract_with_pdfplumber(path: Path) -> list[dict[str, Any]]:
                                 return i
                         return None
 
-                    idx_sl   = col(["sl", "s.no", "sno", "sr"])
+                    idx_sl = col(["sl", "s.no", "sno", "sr"])
                     idx_desc = col(["description", "error desc"])
-                    idx_rem  = col(["remark", "remarks"])
+                    idx_rem = col(["remark", "remarks"])
                     idx_code = col(["code"])
                 elif idx_code is None and len(header) >= 4:
                     # Fallback if no header was found on the first page
@@ -83,9 +84,9 @@ def _extract_with_pdfplumber(path: Path) -> list[dict[str, Any]]:
                     def get(idx: int | None) -> str:
                         return cells[idx] if idx is not None and idx < len(cells) else ""
 
-                    sl   = get(idx_sl)
+                    sl = get(idx_sl)
                     desc = get(idx_desc)
-                    rem  = get(idx_rem)
+                    rem = get(idx_rem)
                     code = get(idx_code)
 
                     # Skip blank or header-repeat rows
@@ -127,7 +128,7 @@ def _extract_with_pymupdf(path: Path) -> list[dict[str, Any]]:
     with fitz.open(str(path)) as doc:
         for page_num, page in enumerate(doc, start=1):
             text = page.get_text("text")
-            lines = [l.strip() for l in text.splitlines() if l.strip()]
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
 
             # Look for lines that match the pattern: digits  text  text  0x####
             code_pattern = re.compile(r"(0x[0-9A-Fa-f]{4})")

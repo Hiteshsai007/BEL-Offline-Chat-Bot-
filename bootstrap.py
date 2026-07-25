@@ -52,7 +52,7 @@ ROOT = Path(__file__).resolve().parent
 IS_WINDOWS = platform.system() == "Windows"
 IS_LINUX = platform.system() == "Linux"
 MIN_PYTHON = (3, 11)
-TOTAL_STEPS = 8
+TOTAL_STEPS = 9
 
 # Ollama install pinning (finding S-4). Bump deliberately after reviewing the
 # upstream release notes; the checksum manifest is fetched per release, so a
@@ -789,6 +789,19 @@ def run_bootstrap(check_only: bool = False) -> bool:
         ok(f"Embedding model cached: {r.version}")
     else:
         warn(f"Embedding model: {r.detail}")
+
+    # Step 9: FAISS index
+    step(9, "Checking FAISS index")
+    if check_only:
+        r = check_faiss_index()
+        results.append(r)
+    else:
+        r = build_faiss_index()
+        results.append(r)
+    if r.after in (Status.PRESENT, Status.INSTALLED):
+        ok(f"FAISS index ready: {r.version or r.action}")
+    else:
+        warn(f"FAISS index: {r.detail}")
 
     # Summary (FR-6)
     elapsed = time.time() - start

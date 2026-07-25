@@ -4,7 +4,6 @@ Post-ingestion validator — enforces the PRD Section 9 fidelity requirement.
 Spot-checks that every ingested chunk's text is traceable back to the source
 PDF content. Flags discrepancies and blocks the index swap if any are found.
 """
-from pathlib import Path
 from typing import Any
 
 from app.logger import get_logger
