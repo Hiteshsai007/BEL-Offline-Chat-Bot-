@@ -15,6 +15,7 @@ Performance optimisation:
   format a grounded response directly from the chunk metadata — no LLM
   round-trip required.  This brings latency from ~30s to <500ms.
 """
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Optional
@@ -26,12 +27,21 @@ from app.rag.generator import (
     generate,
 )
 from app.rag.retriever import RetrievedChunk, get_retriever
+from app.session import get_session_store
+from app.settings import MAX_HISTORY_TURNS
 
 log = get_logger(__name__)
 
 # If the top retrieval score is above this, skip the LLM and answer directly.
 # Exact code matches always score 1.0; strong semantic hits score 0.65+.
 DIRECT_ANSWER_THRESHOLD = 0.60
+
+_ERROR_CODE_REGEX = re.compile(r"0x[0-9a-fA-F]{4}", re.IGNORECASE)
+_PRONOUN_PATTERNS = [
+    r"\bit\b", r"\bthis\b", r"\bthat\b", r"\bthey\b", r"\bthem\b",
+    r"\bthe fault\b", r"\bthe error\b", r"\bhow does it\b", r"\bhow to fix\b",
+    r"\bwhat is it\b", r"\bexplain it\b"
+]
 
 
 @dataclass
@@ -71,10 +81,42 @@ def _format_direct_answer(results: list[RetrievedChunk]) -> str:
         return "\n\n".join(lines)
 
 
-def query(question: str) -> QueryResponse:
+def _expand_query_from_history(question: str, history: list[dict]) -> str:
+    """
+    Lightweight rule-based query context expansion.
+    If the question contains pronouns/follow-up triggers or lacks an error code,
+    extract recent error codes from history to aid FAISS retrieval.
+    """
+    if not history:
+        return question
+
+    q_lower = question.lower()
+    has_pronoun = any(re.search(pat, q_lower) for pat in _PRONOUN_PATTERNS)
+    has_code = bool(_ERROR_CODE_REGEX.search(question))
+    is_short = len(question.split()) <= 6
+
+    if not (has_pronoun or (not has_code and is_short)):
+        return question
+
+    # Scan history backwards for error codes
+    for msg in reversed(history):
+        content = msg.get("content", "")
+        code_match = _ERROR_CODE_REGEX.search(content)
+        if code_match:
+            found_code = code_match.group(0)
+            if found_code.lower() not in question.lower():
+                expanded = f"{question} {found_code}"
+                log.info("Rule-based context expansion: '%s' -> '%s'", question, expanded)
+                return expanded
+
+    return question
+
+
+def query(question: str, session_id: Optional[str] = None) -> QueryResponse:
     """
     Process a user question end-to-end and return a QueryResponse.
     Never raises — all errors are captured in QueryResponse.error.
+    Maintain backward compatibility: session_id is optional.
     """
     t_start = time.perf_counter()
     question = question.strip()
@@ -86,12 +128,30 @@ def query(question: str) -> QueryResponse:
             latency_ms=0,
         )
 
-    log.info("Query received: '%s'", question[:120])
+    log.info("Query received: '%s' | session_id=%s", question[:120], session_id)
 
-    # ── Retrieval ──────────────────────────────────────────────────────────
+    # ── 1. History loading ────────────────────────────────────────────────
+    t_hist_start = time.perf_counter()
+    history: list[dict] = []
+    if session_id:
+        try:
+            store = get_session_store()
+            history = store.get_history(session_id, max_turns=MAX_HISTORY_TURNS)
+        except Exception as e:
+            log.warning("Failed to fetch session history for %s: %s", session_id, e)
+    t_hist_ms = (time.perf_counter() - t_hist_start) * 1000
+
+    # ── 2. Query expansion ────────────────────────────────────────────────
+    t_exp_start = time.perf_counter()
+    search_query = _expand_query_from_history(question, history)
+    t_exp_ms = (time.perf_counter() - t_exp_start) * 1000
+
+    # ── 3. Retrieval ──────────────────────────────────────────────────────
+    t_ret_start = time.perf_counter()
     try:
         retriever = get_retriever()
-        results: list[RetrievedChunk] = retriever.retrieve(question)
+        results: list[RetrievedChunk] = retriever.retrieve(search_query)
+        t_ret_ms = (time.perf_counter() - t_ret_start) * 1000
     except FileNotFoundError as e:
         log.error("Retriever init failed: %s", e)
         return QueryResponse(
@@ -115,7 +175,10 @@ def query(question: str) -> QueryResponse:
     # ── Not-found path (FR-7) — LLM must NOT be called ───────────────────
     if not results:
         elapsed = int((time.perf_counter() - t_start) * 1000)
-        log.info("No relevant chunks found — returning not-found message (no LLM call).")
+        log.info(
+            "TIMING BREAKDOWN (No Chunks) | Total: %dms | History: %.2fms | Expansion: %.2fms | Retrieval: %.2fms",
+            elapsed, t_hist_ms, t_exp_ms, t_ret_ms,
+        )
         return QueryResponse(
             answer=NOT_FOUND_MSG,
             found=False,
@@ -125,8 +188,6 @@ def query(question: str) -> QueryResponse:
     top_score = results[0].score
 
     # ── FAST PATH: direct answer from structured data (no LLM) ────────────
-    # For a structured fault-code table, the chunk metadata IS the answer.
-    # This brings response time from ~30s down to <500ms.
     if top_score >= DIRECT_ANSWER_THRESHOLD:
         answer = _format_direct_answer(results)
         citations = [
@@ -135,9 +196,17 @@ def query(question: str) -> QueryResponse:
         ]
         elapsed = int((time.perf_counter() - t_start) * 1000)
         log.info(
-            "FAST PATH: direct answer in %dms | top_score=%.3f | %d chunk(s)",
-            elapsed, top_score, len(results),
+            "FAST PATH TIMING BREAKDOWN | Total: %dms | History: %.2fms | "
+            "Expansion: %.2fms | Retrieval: %.2fms | DirectAnswer: <1ms",
+            elapsed, t_hist_ms, t_exp_ms, t_ret_ms,
         )
+
+        if session_id:
+            try:
+                get_session_store().add_turn(session_id, question, answer)
+            except Exception as e:
+                log.warning("Failed to record turn for %s: %s", session_id, e)
+
         return QueryResponse(
             answer=answer,
             citations=citations,
@@ -151,7 +220,7 @@ def query(question: str) -> QueryResponse:
     # ── SLOW PATH: LLM inference for ambiguous/low-confidence queries ─────
     log.info("Low confidence (%.3f) — falling back to LLM inference.", top_score)
     try:
-        gen_result = generate(question, results)
+        gen_result = generate(question, results, history=history)
     except Exception as e:
         log.error("Generator error: %s", e)
         return QueryResponse(
@@ -164,13 +233,24 @@ def query(question: str) -> QueryResponse:
         )
 
     elapsed = int((time.perf_counter() - t_start) * 1000)
+    answer = gen_result["answer"]
+    prompt_ms = gen_result.get("prompt_construction_ms", 0.0)
+    ollama_ms = gen_result.get("ollama_inference_ms", 0.0)
+
     log.info(
-        "LLM PATH: query complete in %dms | top_score=%.3f | guardrail=%s",
-        elapsed, top_score, gen_result.get("guardrail_triggered"),
+        "LLM PATH TIMING BREAKDOWN | Total: %dms | History: %.2fms | "
+        "Expansion: %.2fms | Retrieval: %.2fms | PromptBuild: %.2fms | Ollama: %.2fms",
+        elapsed, t_hist_ms, t_exp_ms, t_ret_ms, prompt_ms, ollama_ms,
     )
 
+    if session_id and answer and answer != DEGRADED_MSG:
+        try:
+            get_session_store().add_turn(session_id, question, answer)
+        except Exception as e:
+            log.warning("Failed to record turn for %s: %s", session_id, e)
+
     return QueryResponse(
-        answer=gen_result["answer"],
+        answer=answer,
         citations=gen_result["citations"],
         retrieved_chunks=[{**r.chunk, "score": r.score} for r in results],
         top_score=top_score,

@@ -1,0 +1,44 @@
+﻿
+==========================================
+QUERY: 'How does it work?'
+==========================================
+  No chunks retrieved.
+
+==========================================
+QUERY: 'How do I fix it?'
+==========================================
+Top Score: 0.5887 (Threshold = 0.6)
+Fast Path Selected? -> False
+
+Retrieval Results:
+  [1] Score: 0.5887 | Code: 0x0017 | Doc: IRL Fault Codes.pdf
+      Desc: Depth setting failed
+      Remarks: Depth setting is stopped on some error
+  [2] Score: 0.5645 | Code: 0x0005 | Doc: IRL Fault Codes.pdf
+      Desc: R1 Misfired
+      Remarks: Fired but still rocket present
+  [3] Score: 0.5624 | Code: 0x0009 | Doc: IRL Fault Codes.pdf
+      Desc: R5 Misfired
+      Remarks: Fired but still rocket present
+
+==========================================
+QUERY: 'How does it work? 0x0003'
+==========================================
+Top Score: 1.0000 (Threshold = 0.6)
+Fast Path Selected? -> True
+
+Retrieval Results:
+  [1] Score: 1.0000 | Code: 0x0003 | Doc: IRL Fault Codes.pdf
+      Desc: Fire aborted
+      Remarks: Dynamic accuracy failed (+/- 0.5 Deg)
+
+==========================================
+QUERY: 'How do I fix it? 0x0003'
+==========================================
+Top Score: 1.0000 (Threshold = 0.6)
+Fast Path Selected? -> True
+
+Retrieval Results:
+  [1] Score: 1.0000 | Code: 0x0003 | Doc: IRL Fault Codes.pdf
+      Desc: Fire aborted
+      Remarks: Dynamic accuracy failed (+/- 0.5 Deg)
