@@ -28,7 +28,7 @@ from app.rag.generator import (
 )
 from app.rag.retriever import RetrievedChunk, get_retriever
 from app.session import get_session_store
-from app.settings import CONFIDENCE_THRESHOLD, MAX_HISTORY_TURNS
+from app.settings import MAX_HISTORY_TURNS
 
 log = get_logger(__name__)
 
@@ -196,7 +196,8 @@ def query(question: str, session_id: Optional[str] = None) -> QueryResponse:
         ]
         elapsed = int((time.perf_counter() - t_start) * 1000)
         log.info(
-            "FAST PATH TIMING BREAKDOWN | Total: %dms | History: %.2fms | Expansion: %.2fms | Retrieval: %.2fms | DirectAnswer: <1ms",
+            "FAST PATH TIMING BREAKDOWN | Total: %dms | History: %.2fms | "
+            "Expansion: %.2fms | Retrieval: %.2fms | DirectAnswer: <1ms",
             elapsed, t_hist_ms, t_exp_ms, t_ret_ms,
         )
 
@@ -237,7 +238,8 @@ def query(question: str, session_id: Optional[str] = None) -> QueryResponse:
     ollama_ms = gen_result.get("ollama_inference_ms", 0.0)
 
     log.info(
-        "LLM PATH TIMING BREAKDOWN | Total: %dms | History: %.2fms | Expansion: %.2fms | Retrieval: %.2fms | PromptBuild: %.2fms | Ollama: %.2fms",
+        "LLM PATH TIMING BREAKDOWN | Total: %dms | History: %.2fms | "
+        "Expansion: %.2fms | Retrieval: %.2fms | PromptBuild: %.2fms | Ollama: %.2fms",
         elapsed, t_hist_ms, t_exp_ms, t_ret_ms, prompt_ms, ollama_ms,
     )
 

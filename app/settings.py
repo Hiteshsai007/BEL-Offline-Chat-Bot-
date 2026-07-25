@@ -48,4 +48,3 @@ LOG_BACKUP_COUNT: int = CFG["logging"]["backup_count"]
 MAX_HISTORY_TURNS: int = CFG.get("session", {}).get("max_history_turns", 4)
 MAX_STORED_MESSAGES: int = CFG.get("session", {}).get("max_stored_messages", 100)
 MAX_MESSAGE_CHARS: int = CFG.get("session", {}).get("max_message_chars", 300)
-

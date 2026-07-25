@@ -6,8 +6,7 @@ from pathlib import Path
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.session import SessionStore
-
+from app.session import SessionStore  # noqa: E402
 
 
 class TestSessionStore(unittest.TestCase):
@@ -70,7 +69,6 @@ class TestSessionStore(unittest.TestCase):
             conn.close()
 
         self.assertEqual(count, 6)
-
 
         # Verify content of remaining 6 messages (Q3, A3, Q4, A4, Q5, A5)
         history = self.store.get_history(session_id, max_turns=10)
