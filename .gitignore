@@ -21,3 +21,4 @@ faiss.tmp
 # OS specific
 .DS_Store
 Thumbs.db
+wheels/
