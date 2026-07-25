@@ -29,7 +29,17 @@ async def test_query_threadpool_does_not_block_health():
             found=True,
         )
 
-    with patch("app.main.rag_query", side_effect=slow_query):
+    # Mock health's httpx client get so it doesn't block on real network calls to non-running Ollama
+    async def mock_httpx_get(*args, **kwargs):
+        class MockResponse:
+            status_code = 200
+
+            def json(self):
+                return {"models": [{"name": "qwen2.5:3b"}]}
+        return MockResponse()
+
+    with patch("app.main.rag_query", side_effect=slow_query), \
+            patch("httpx.AsyncClient.get", side_effect=mock_httpx_get):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
 
             # Start the slow /query POST request
