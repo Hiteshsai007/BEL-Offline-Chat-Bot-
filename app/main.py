@@ -195,7 +195,7 @@ async def health() -> JSONResponse:
 
 
 @app.post("/reload", dependencies=[Depends(verify_same_origin)])
-async def reload_index():
+async def reload_index() -> dict:
     """Hot-reload the FAISS index after running the ingestion script."""
     try:
         from app.rag.retriever import get_retriever

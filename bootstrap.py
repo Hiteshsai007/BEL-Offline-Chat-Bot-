@@ -84,7 +84,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("bootstrap")
 
-def _print(icon: str, colour: str, msg: str):
+def _print(icon: str, colour: str, msg: str) -> None:
     print(f"  {colour}{icon}{_C.RST} {msg}")
     log.info(msg)
 
@@ -92,7 +92,7 @@ def ok(msg: str):   _print("OK", _C.GRN, msg)
 def warn(msg: str): _print("!!", _C.YLW, msg)
 def fail(msg: str): _print("FAIL", _C.RED, msg)
 
-def step(n: int, msg: str):
+def step(n: int, msg: str) -> None:
     print(f"\n{_C.CYN}[{n}/{TOTAL_STEPS}]{_C.RST} {_C.B}{msg}{_C.RST}")
     log.info("Step %d/%d: %s", n, TOTAL_STEPS, msg)
 
@@ -820,7 +820,7 @@ def run_bootstrap(check_only: bool = False) -> bool:
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="BEL Offline AI -- cross-platform environment bootstrap"
     )
