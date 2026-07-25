@@ -54,7 +54,7 @@ def _build_faiss_index(vectors: np.ndarray) -> Any:
         index = faiss.IndexFlatIP(dim)          # inner-product = cosine on normalised vecs
     else:
         # Larger corpus: HNSW for fast approximate search
-        index = faiss.IndexHNSWFlat(dim, 32)    # M=32 neighbours
+        index = faiss.IndexHNSWFlat(dim, 32, faiss.METRIC_INNER_PRODUCT)    # M=32 neighbours
         index.hnsw.efConstruction = 200
 
     # Normalise vectors so inner product == cosine similarity
