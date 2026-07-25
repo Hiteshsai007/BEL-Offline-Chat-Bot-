@@ -377,8 +377,32 @@ if (menuBtn)       menuBtn.addEventListener('click', openSidebar);
 if (sidebarToggle) sidebarToggle.addEventListener('click', closeSidebar);
 if (newChatBtn)    newChatBtn.addEventListener('click', resetChat);
 
+// ── Health polling with visibility guard (H-10) ───────────────────────
+let _healthInterval = null;
+const HEALTH_POLL_MS = 30_000;
+
+function startHealthPolling() {
+  if (_healthInterval) return;
+  checkHealth();
+  _healthInterval = setInterval(checkHealth, HEALTH_POLL_MS);
+}
+
+function stopHealthPolling() {
+  if (_healthInterval) {
+    clearInterval(_healthInterval);
+    _healthInterval = null;
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    stopHealthPolling();
+  } else {
+    startHealthPolling();
+  }
+});
+
 // ── Init ──────────────────────────────────────────────────────────────
 bindWelcomeChips();
 bindSidebarChips();
-checkHealth();
-setInterval(checkHealth, 30_000);
+startHealthPolling();
