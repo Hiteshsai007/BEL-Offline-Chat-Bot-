@@ -15,7 +15,7 @@ import time
 import httpx
 
 from app.logger import get_logger
-from app.settings import MAX_TOKENS, MODEL_TAG, OLLAMA_URL, TEMPERATURE, TIMEOUT
+from app.settings import MAX_MESSAGE_CHARS, MAX_TOKENS, MODEL_TAG, OLLAMA_URL, TEMPERATURE, TIMEOUT
 
 log = get_logger(__name__)
 
@@ -37,6 +37,7 @@ Rules:
 - If the answer is not present in the context, respond exactly with:
   "This information is not available in the current documentation."
 - Cite every supported statement as [Document, Error Code/Section].
+- Do not cite Previous Conversation. Cite ONLY from the numbered Context passages.
 - Do not use any knowledge beyond the provided context.
 - Be concise and precise. Do not speculate."""
 
@@ -50,6 +51,20 @@ def _build_context_block(retrieved_chunks: list) -> str:
         code  = chunk.get("error_code") or "N/A"
         text  = chunk.get("chunk_text", "")
         lines.append(f"[{i}] {text} (Source: {doc}, Error Code: {code})")
+    return "\n".join(lines)
+
+
+def _build_history_block(history: list | None) -> str:
+    """Format previous conversation turns into a concise text block."""
+    if not history:
+        return ""
+    lines = ["Previous Conversation:"]
+    for msg in history:
+        role = "User" if msg.get("role") == "user" else "Assistant"
+        content = (msg.get("content") or "").strip()
+        if len(content) > MAX_MESSAGE_CHARS:
+            content = content[:MAX_MESSAGE_CHARS] + "..."
+        lines.append(f"{role}: {content}")
     return "\n".join(lines)
 
 
@@ -98,15 +113,17 @@ def _call_ollama(prompt: str, system: str) -> str:
     return answer, elapsed_ms
 
 
-def generate(question: str, retrieved_chunks: list) -> dict:
+def generate(question: str, retrieved_chunks: list, history: list | None = None) -> dict:
     """
-    Generate a grounded answer from retrieved chunks.
+    Generate a grounded answer from retrieved chunks and conversation history.
 
     Returns:
         {
             "answer": str,
             "citations": list[str],
             "latency_ms": float,
+            "prompt_construction_ms": float,
+            "ollama_inference_ms": float,
             "guardrail_triggered": bool,
         }
 
@@ -118,15 +135,24 @@ def generate(question: str, retrieved_chunks: list) -> dict:
             "The pipeline must return NOT_FOUND_MSG without calling the generator."
         )
 
+    t_prompt_start = time.perf_counter()
     context_block = _build_context_block(retrieved_chunks)
-    prompt = (
-        f"Context:\n{context_block}\n\n"
-        f"Question: {question}"
-    )
+    history_block = _build_history_block(history)
+
+    prompt_parts = []
+    if history_block:
+        prompt_parts.append(history_block)
+    prompt_parts.append(f"Context:\n{context_block}")
+    prompt_parts.append(f"Question: {question}")
+    prompt = "\n\n".join(prompt_parts)
+    prompt_construction_ms = (time.perf_counter() - t_prompt_start) * 1000
+
+    log.info("Prompt construction completed in %.2fms", prompt_construction_ms)
 
     guardrail_triggered = False
     answer = ""
     elapsed_ms = 0.0
+
 
     # ── Attempt 1 ─────────────────────────────────────────────────────────
     try:
@@ -155,28 +181,34 @@ def generate(question: str, retrieved_chunks: list) -> dict:
         log.warning("Citation guardrail triggered — regenerating …")
         guardrail_triggered = True
 
-        retry_prompt = (
-            f"Context:\n{context_block}\n\n"
-            f"Question: {question}\n\n"
+        retry_parts = []
+        if history_block:
+            retry_parts.append(history_block)
+        retry_parts.append(f"Context:\n{context_block}")
+        retry_parts.append(f"Question: {question}")
+        retry_parts.append(
             "IMPORTANT: Your answer MUST include at least one citation in the "
             "format [Document Name, Error Code]. Do not omit citations."
         )
+        retry_prompt = "\n\n".join(retry_parts)
         try:
             answer, elapsed_ms = _call_ollama(retry_prompt, _SYSTEM_PROMPT)
         except Exception as e:
             log.error("Retry call failed: %s", e)
             answer = INSUFFICIENT_MSG
 
+
         if not _has_citation(answer):
             log.warning("Citation guardrail: retry also failed — using insufficient fallback.")
             answer = INSUFFICIENT_MSG
 
-    # ── Extract citation strings for structured response ───────────────────
     citations = re.findall(r"\[([^\]]+)\]", answer)
 
     return {
         "answer": answer,
         "citations": citations,
         "latency_ms": round(elapsed_ms),
+        "prompt_construction_ms": round(prompt_construction_ms, 3),
+        "ollama_inference_ms": round(elapsed_ms, 3),
         "guardrail_triggered": guardrail_triggered,
     }

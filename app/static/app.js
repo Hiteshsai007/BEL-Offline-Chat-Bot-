@@ -24,6 +24,29 @@ const newChatBtn    = $('newChatBtn');
 // ── Conversation state ────────────────────────────────────────────────
 let isProcessing = false;
 
+function generateUUID() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+function getOrCreateSessionId() {
+  let id = sessionStorage.getItem('bel_session_id');
+  if (!id) {
+    id = generateUUID();
+    sessionStorage.setItem('bel_session_id', id);
+  }
+  return id;
+}
+
+let currentSessionId = getOrCreateSessionId();
+
+
 // ── Utilities ─────────────────────────────────────────────────────────
 function escHtml(str) {
   if (!str) return '';
@@ -232,7 +255,7 @@ async function submitQuery() {
     const resp = await fetch('/query', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ question }),
+      body:    JSON.stringify({ question, session_id: currentSessionId }),
     });
 
     const data = await resp.json();
@@ -240,6 +263,11 @@ async function submitQuery() {
     if (!resp.ok) {
       addErrorMessage(data.detail || `Server error (HTTP ${resp.status})`);
       return;
+    }
+
+    if (data.session_id) {
+      currentSessionId = data.session_id;
+      sessionStorage.setItem('bel_session_id', currentSessionId);
     }
 
     addAIMessage(data);
@@ -254,6 +282,9 @@ async function submitQuery() {
 
 // ── New Chat ──────────────────────────────────────────────────────────
 function resetChat() {
+  currentSessionId = generateUUID();
+  sessionStorage.setItem('bel_session_id', currentSessionId);
+
   // Remove all messages except the welcome screen
   messagesEl.innerHTML = '';
   // Rebuild the welcome screen

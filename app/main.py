@@ -11,6 +11,7 @@ All traffic is loopback-only (127.0.0.1 — PRD Section 12).
 No CORS, no remote origins, no telemetry.
 """
 import time
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from pydantic import BaseModel
 
 from app.logger import get_logger
 from app.rag.pipeline import query as rag_query
+from app.session import get_session_store
 from app.settings import FAISS_INDEX_PATH, MODEL_TAG, OLLAMA_URL, SERVER_HOST, SERVER_PORT
 
 log = get_logger(__name__)
@@ -63,6 +65,7 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 # ── Request / Response models ───────────────────────────────────────────────
 class QueryRequest(BaseModel):
     question: str
+    session_id: str | None = None
 
 
 class ChunkInfo(BaseModel):
@@ -82,6 +85,11 @@ class QueryResponse(BaseModel):
     found: bool
     guardrail_triggered: bool
     error: str | None
+    session_id: str | None = None
+
+
+class ClearSessionRequest(BaseModel):
+    session_id: str
 
 
 # ── Routes ──────────────────────────────────────────────────────────────────
@@ -111,8 +119,9 @@ async def query_endpoint(req: QueryRequest):
     if not req.question or not req.question.strip():
         raise HTTPException(status_code=422, detail="Question must not be empty.")
 
-    log.info("POST /query | question=%r", req.question[:80])
-    result = rag_query(req.question)
+    session_id = req.session_id.strip() if (req.session_id and req.session_id.strip()) else str(uuid.uuid4())
+    log.info("POST /query | question=%r | session_id=%s", req.question[:80], session_id)
+    result = rag_query(req.question, session_id=session_id)
 
     chunks_out = []
     for c in result.retrieved_chunks:
@@ -133,7 +142,17 @@ async def query_endpoint(req: QueryRequest):
         found=result.found,
         guardrail_triggered=result.guardrail_triggered,
         error=result.error,
+        session_id=session_id,
     )
+
+
+@app.post("/session/clear")
+async def clear_session_endpoint(req: ClearSessionRequest):
+    if not req.session_id or not req.session_id.strip():
+        raise HTTPException(status_code=422, detail="session_id must not be empty.")
+    get_session_store().clear_session(req.session_id)
+    return {"status": "ok", "message": f"Cleared history for session {req.session_id}"}
+
 
 
 @app.get("/health")
