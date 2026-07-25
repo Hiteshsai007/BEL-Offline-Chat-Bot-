@@ -36,5 +36,6 @@ jobs:
       env:
         TRANSFORMERS_OFFLINE: "1"
         HF_DATASETS_OFFLINE: "1"
+        HF_HUB_OFFLINE: "1"
       run: |
         python -m pytest tests/ -v
