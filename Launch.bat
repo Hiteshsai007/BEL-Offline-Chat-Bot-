@@ -9,6 +9,7 @@ cd /d "%~dp0"
 if not exist "logs" mkdir logs
 
 :: Set offline flags
+set HF_HUB_OFFLINE=1
 set TRANSFORMERS_OFFLINE=1
 set HF_DATASETS_OFFLINE=1
 

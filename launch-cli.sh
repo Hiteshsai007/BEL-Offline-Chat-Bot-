@@ -13,5 +13,11 @@ fi
 # Activate virtual environment
 source .venv/bin/activate
 
+# Enforce offline mode -- no runtime network calls (PRD Section 12, finding S-5).
+# HF_HUB_OFFLINE is the variable modern huggingface_hub actually honours.
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+export HF_DATASETS_OFFLINE=1
+
 # Launch CLI
 python -m app.cli

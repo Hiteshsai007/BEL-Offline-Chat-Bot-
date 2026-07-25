@@ -33,27 +33,31 @@ if (-not (Test-Path $Activate)) {
 
 # --- Step 2: Set offline flags (telemetry prevention) ------------------------
 Write-Host "[2/6] Setting offline environment flags ..." -ForegroundColor Yellow
+$env:HF_HUB_OFFLINE          = "1"
 $env:TRANSFORMERS_OFFLINE    = "1"
 $env:HF_DATASETS_OFFLINE     = "1"
 $env:TOKENIZERS_PARALLELISM  = "false"
-Write-Host "      TRANSFORMERS_OFFLINE=1, HF_DATASETS_OFFLINE=1" -ForegroundColor Green
+Write-Host "      HF_HUB_OFFLINE=1, TRANSFORMERS_OFFLINE=1, HF_DATASETS_OFFLINE=1" -ForegroundColor Green
 
 # --- Step 3: Install Python dependencies --------------------------------------
 Write-Host "[3/6] Installing Python dependencies ..." -ForegroundColor Yellow
 # Temporarily allow online for package install (first-time setup only)
 $env:TRANSFORMERS_OFFLINE = "0"
+$env:HF_HUB_OFFLINE = "0"
 # Install CPU-only PyTorch first (prevents DLL errors on PCs without NVIDIA GPU)
 Write-Host "      Installing PyTorch (CPU-only) ..." -ForegroundColor DarkGray
 pip install torch --index-url https://download.pytorch.org/whl/cpu --quiet
 Write-Host "      Installing remaining dependencies ..." -ForegroundColor DarkGray
 pip install -r requirements.txt --quiet
 $env:TRANSFORMERS_OFFLINE = "1"
+$env:HF_HUB_OFFLINE = "1"
 Write-Host "      Dependencies installed." -ForegroundColor Green
 
 # --- Step 4: Download BGE embedding model -------------------------------------
 Write-Host "[4/6] Downloading BGE embedding model (BAAI/bge-small-en-v1.5) ..." -ForegroundColor Yellow
 Write-Host "      This runs once. The model is cached locally for all future offline use." -ForegroundColor DarkGray
 $env:TRANSFORMERS_OFFLINE = "0"
+$env:HF_HUB_OFFLINE = "0"
 python -c "
 from sentence_transformers import SentenceTransformer
 print('  Downloading bge-small-en-v1.5 ...')
@@ -61,6 +65,7 @@ m = SentenceTransformer('BAAI/bge-small-en-v1.5', device='cpu')
 print('  Done.')
 "
 $env:TRANSFORMERS_OFFLINE = "1"
+$env:HF_HUB_OFFLINE = "1"
 Write-Host "      Embedding model ready." -ForegroundColor Green
 
 # --- Step 5: Check Ollama ------------------------------------------------------

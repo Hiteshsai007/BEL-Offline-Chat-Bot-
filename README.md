@@ -208,7 +208,7 @@ All parameters are in [`app/config.yaml`](app/config.yaml) — no code changes n
 - Ollama listens on `127.0.0.1` only — no remote inference
 - FastAPI server listens on `127.0.0.1:8000` only
 - No outbound network calls at runtime
-- `TRANSFORMERS_OFFLINE=1` prevents any Hugging Face telemetry
+- `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1` and `HF_DATASETS_OFFLINE=1` prevent any Hugging Face network access or telemetry at runtime
 - All logs are local, rotating, in `logs/app.log`
 
 ---

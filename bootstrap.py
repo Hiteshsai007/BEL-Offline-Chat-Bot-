@@ -459,7 +459,10 @@ def download_embedding_model() -> Result:
         "from sentence_transformers import SentenceTransformer; "
         f"SentenceTransformer('{model_id}', device='cpu')"
     )
-    r = _run([str(py), "-c", code], env={**os.environ, "TRANSFORMERS_OFFLINE": "0"})
+    # One-time model download: both offline switches must be lifted, or
+    # huggingface_hub refuses the fetch (finding S-5).
+    download_env = {**os.environ, "TRANSFORMERS_OFFLINE": "0", "HF_HUB_OFFLINE": "0"}
+    r = _run([str(py), "-c", code], env=download_env)
     if r.returncode == 0:
         return Result("Embedding Model", Status.ABSENT, Status.INSTALLED, model_id,
                       action=f"Downloaded {model_id}")
