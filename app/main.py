@@ -6,6 +6,7 @@ Endpoints:
     POST /query     → RAG pipeline query
     GET  /health    → Ollama + index liveness check
     POST /reload    → hot-reload the FAISS index after re-ingestion
+    POST /session/clear → clear session conversation history
 
 All traffic is loopback-only (127.0.0.1 — PRD Section 12).
 No CORS, no remote origins, no telemetry.
@@ -13,6 +14,7 @@ No CORS, no remote origins, no telemetry.
 State-changing routes (POST /query, POST /reload) are additionally guarded by
 a same-origin check — see app/security.py for the threat model (finding S-1).
 """
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -25,6 +27,7 @@ from pydantic import BaseModel, Field
 from app.logger import get_logger
 from app.rag.pipeline import query as rag_query
 from app.security import verify_same_origin
+from app.session import get_session_store
 from app.settings import FAISS_INDEX_PATH, MODEL_TAG, OLLAMA_URL, SERVER_HOST, SERVER_PORT
 
 log = get_logger(__name__)
@@ -65,19 +68,12 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # ── Request / Response models ───────────────────────────────────────────────
 # Upper bound on an inbound question (finding S-3).
-# 2000 chars is ~16x the longest entry in the fault-code corpus (124 chars) and
-# far beyond any realistic plain-language lookup, so it never constrains
-# legitimate use. Without a bound, an arbitrarily large body is fed straight
-# into SentenceTransformer.encode() and then concatenated into the Ollama
-# prompt — a cheap local denial of service.
 MAX_QUESTION_CHARS = 2000
 
 
 class QueryRequest(BaseModel):
-    # min_length=1 rejects the empty string at the validation layer; the
-    # handler additionally strips whitespace-only input, which min_length
-    # cannot catch.
     question: str = Field(..., min_length=1, max_length=MAX_QUESTION_CHARS)
+    session_id: str | None = None
 
 
 class ChunkInfo(BaseModel):
@@ -97,6 +93,11 @@ class QueryResponse(BaseModel):
     found: bool
     guardrail_triggered: bool
     error: str | None
+    session_id: str | None = None
+
+
+class ClearSessionRequest(BaseModel):
+    session_id: str
 
 
 # ── Routes ──────────────────────────────────────────────────────────────────
@@ -126,8 +127,9 @@ def query_endpoint(req: QueryRequest) -> QueryResponse:
     if not req.question or not req.question.strip():
         raise HTTPException(status_code=422, detail="Question must not be empty.")
 
-    log.info("POST /query | question=%r", req.question[:80])
-    result = rag_query(req.question)
+    session_id = req.session_id.strip() if (req.session_id and req.session_id.strip()) else str(uuid.uuid4())
+    log.info("POST /query | question=%r | session_id=%s", req.question[:80], session_id)
+    result = rag_query(req.question, session_id=session_id)
 
     chunks_out = []
     for c in result.retrieved_chunks:
@@ -148,7 +150,16 @@ def query_endpoint(req: QueryRequest) -> QueryResponse:
         found=result.found,
         guardrail_triggered=result.guardrail_triggered,
         error=result.error,
+        session_id=session_id,
     )
+
+
+@app.post("/session/clear", dependencies=[Depends(verify_same_origin)])
+async def clear_session_endpoint(req: ClearSessionRequest):
+    if not req.session_id or not req.session_id.strip():
+        raise HTTPException(status_code=422, detail="session_id must not be empty.")
+    get_session_store().clear_session(req.session_id)
+    return {"status": "ok", "message": f"Cleared history for session {req.session_id}"}
 
 
 @app.get("/health")
@@ -170,9 +181,6 @@ async def health() -> JSONResponse:
             else:
                 status["ollama"] = f"http_{r.status_code}"
     except Exception as e:
-        # Log the real exception server-side; return only a generic marker.
-        # str(e) on httpx/OS errors embeds absolute paths and usernames, and
-        # app.js renders this value straight into the chat UI (finding S-2).
         log.error("Ollama health probe failed: %s", e)
         status["ollama"] = "unreachable"
 
@@ -194,8 +202,6 @@ async def reload_index():
         get_retriever().reload()
         return {"status": "ok", "message": "Index reloaded successfully."}
     except Exception as e:
-        # Real cause goes to the log only. Returning str(e) would leak the
-        # index path and the operator's username to the browser (finding S-2).
         log.error("Reload failed: %s", e, exc_info=True)
         raise HTTPException(
             status_code=500,

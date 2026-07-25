@@ -11,6 +11,8 @@ logs/
 
 # Data and Models
 data/models/
+*.db
+data/*.db
 chunks.tmp.jsonl
 faiss.tmp
 

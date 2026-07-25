@@ -46,3 +46,9 @@ logging:
   level: "INFO"
   max_bytes: 10485760  # 10 MB
   backup_count: 3
+
+session:
+  max_history_turns: 4
+  max_stored_messages: 100
+  max_message_chars: 300
+

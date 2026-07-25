@@ -17,6 +17,7 @@ import httpx
 from app.logger import get_logger
 from app.settings import (
     ERROR_CODE_PATTERN,
+    MAX_MESSAGE_CHARS,
     MAX_TOKENS,
     MODEL_TAG,
     OLLAMA_URL,
@@ -27,8 +28,6 @@ from app.settings import (
 log = get_logger(__name__)
 
 # Reuse the single source of truth for what an error code looks like
-# (app/config.yaml retrieval.error_code_pattern), so the guardrail cannot
-# drift from the retriever's own notion of a valid code.
 _CODE_RE = re.compile(ERROR_CODE_PATTERN, re.IGNORECASE)
 
 # ── Fixed response strings (PRD Section 13) ────────────────────────────────
@@ -49,6 +48,7 @@ Rules:
 - If the answer is not present in the context, respond exactly with:
   "This information is not available in the current documentation."
 - Cite every supported statement as [Document, Error Code/Section].
+- Do not cite Previous Conversation. Cite ONLY from the numbered Context passages.
 - Do not use any knowledge beyond the provided context.
 - Be concise and precise. Do not speculate."""
 
@@ -62,6 +62,20 @@ def _build_context_block(retrieved_chunks: list) -> str:
         code = chunk.get("error_code") or "N/A"
         text = chunk.get("chunk_text", "")
         lines.append(f"[{i}] {text} (Source: {doc}, Error Code: {code})")
+    return "\n".join(lines)
+
+
+def _build_history_block(history: list | None) -> str:
+    """Format previous conversation turns into a concise text block."""
+    if not history:
+        return ""
+    lines = ["Previous Conversation:"]
+    for msg in history:
+        role = "User" if msg.get("role") == "user" else "Assistant"
+        content = (msg.get("content") or "").strip()
+        if len(content) > MAX_MESSAGE_CHARS:
+            content = content[:MAX_MESSAGE_CHARS] + "..."
+        lines.append(f"{role}: {content}")
     return "\n".join(lines)
 
 
@@ -88,24 +102,6 @@ def _citable_documents(retrieved_chunks: list) -> set:
 def _has_citation(text: str, retrieved_chunks: list) -> bool:
     """
     Validate that the response contains at least one *grounded* citation.
-
-    The previous implementation matched ``\\[.+?,\\s*.+?\\]`` — any bracketed
-    comma. "[1, 2]", "[TODO, fix]" or a markdown array all satisfied it, so the
-    guardrail the PRD positions as the anti-hallucination control could be
-    passed without citing anything real (finding S-6).
-
-    A citation is now accepted only when a bracketed span contains an error
-    code that (a) matches the configured error-code pattern and (b) actually
-    appears in the retrieved context. That is the property the guardrail is
-    supposed to enforce: every cited code is traceable to a real source chunk,
-    so a fabricated-but-plausible code like "[IRL Fault Codes.pdf, 0x9999]" is
-    rejected rather than waved through.
-
-    Fallback: when none of the retrieved chunks carry an error code (e.g. only
-    prose/footnote chunks were retrieved, which have error_code=None), a
-    bracketed span naming a real retrieved document is accepted instead —
-    otherwise the guardrail would be unsatisfiable and would loop into the
-    INSUFFICIENT_MSG fallback for legitimate prose answers.
     """
     spans = re.findall(r"\[([^\]]+)\]", text)
     if not spans:
@@ -120,7 +116,6 @@ def _has_citation(text: str, retrieved_chunks: list) -> bool:
                     return True
         return False
 
-    # No codes in context — fall back to document-name grounding.
     valid_docs = _citable_documents(retrieved_chunks)
     for span in spans:
         span_l = span.lower()
@@ -133,9 +128,6 @@ def _has_citation(text: str, retrieved_chunks: list) -> bool:
 def _extract_citations(text: str, retrieved_chunks: list) -> list:
     """
     Return only the bracketed spans that pass the grounded-citation check.
-
-    The old code harvested every ``[...]`` span, so the structured citation
-    list was polluted with markdown artefacts and fabricated references.
     """
     valid_codes = _citable_codes(retrieved_chunks)
     valid_docs = _citable_documents(retrieved_chunks)
@@ -183,7 +175,6 @@ def _call_ollama(prompt: str, system: str) -> tuple[str, float]:
 
     log.info("Ollama response in %.0fms (%d chars)", elapsed_ms, len(answer))
 
-    # PRD latency sanity check: genuine LLM call should never be instant
     if elapsed_ms < 500:
         log.warning(
             "SUSPICIOUS: LLM responded in %.0fms — "
@@ -194,19 +185,9 @@ def _call_ollama(prompt: str, system: str) -> tuple[str, float]:
     return answer, elapsed_ms
 
 
-def generate(question: str, retrieved_chunks: list) -> dict:
+def generate(question: str, retrieved_chunks: list, history: list | None = None) -> dict:
     """
-    Generate a grounded answer from retrieved chunks.
-
-    Returns:
-        {
-            "answer": str,
-            "citations": list[str],
-            "latency_ms": float,
-            "guardrail_triggered": bool,
-        }
-
-    This function must ONLY be called when retrieved_chunks is non-empty.
+    Generate a grounded answer from retrieved chunks and conversation history.
     """
     if not retrieved_chunks:
         raise ValueError(
@@ -214,11 +195,19 @@ def generate(question: str, retrieved_chunks: list) -> dict:
             "The pipeline must return NOT_FOUND_MSG without calling the generator."
         )
 
+    t_prompt_start = time.perf_counter()
     context_block = _build_context_block(retrieved_chunks)
-    prompt = (
-        f"Context:\n{context_block}\n\n"
-        f"Question: {question}"
-    )
+    history_block = _build_history_block(history)
+
+    prompt_parts = []
+    if history_block:
+        prompt_parts.append(history_block)
+    prompt_parts.append(f"Context:\n{context_block}")
+    prompt_parts.append(f"Question: {question}")
+    prompt = "\n\n".join(prompt_parts)
+    prompt_construction_ms = (time.perf_counter() - t_prompt_start) * 1000
+
+    log.info("Prompt construction completed in %.2fms", prompt_construction_ms)
 
     guardrail_triggered = False
     answer = ""
@@ -251,12 +240,16 @@ def generate(question: str, retrieved_chunks: list) -> dict:
         log.warning("Citation guardrail triggered — regenerating …")
         guardrail_triggered = True
 
-        retry_prompt = (
-            f"Context:\n{context_block}\n\n"
-            f"Question: {question}\n\n"
+        retry_parts = []
+        if history_block:
+            retry_parts.append(history_block)
+        retry_parts.append(f"Context:\n{context_block}")
+        retry_parts.append(f"Question: {question}")
+        retry_parts.append(
             "IMPORTANT: Your answer MUST include at least one citation in the "
             "format [Document Name, Error Code]. Do not omit citations."
         )
+        retry_prompt = "\n\n".join(retry_parts)
         try:
             answer, elapsed_ms = _call_ollama(retry_prompt, _SYSTEM_PROMPT)
         except Exception as e:
@@ -267,12 +260,13 @@ def generate(question: str, retrieved_chunks: list) -> dict:
             log.warning("Citation guardrail: retry also failed — using insufficient fallback.")
             answer = INSUFFICIENT_MSG
 
-    # ── Extract citation strings for structured response ───────────────────
     citations = _extract_citations(answer, retrieved_chunks)
 
     return {
         "answer": answer,
         "citations": citations,
         "latency_ms": round(elapsed_ms),
+        "prompt_construction_ms": round(prompt_construction_ms, 3),
+        "ollama_inference_ms": round(elapsed_ms, 3),
         "guardrail_triggered": guardrail_triggered,
     }
