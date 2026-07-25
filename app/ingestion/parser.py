@@ -33,7 +33,7 @@ def _clean(text: str | None) -> str:
 
 # ── pdfplumber extraction ──────────────────────────────────────────────────
 
-def _extract_with_pdfplumber(path: Path) -> list[dict[str, Any]]:
+def _extract_with_pdfplumber(path: Path) -> tuple[list[dict[str, Any]], list[str]]:
     import pdfplumber  # type: ignore
 
     rows: list[dict[str, Any]] = []
@@ -115,7 +115,7 @@ def _extract_with_pdfplumber(path: Path) -> list[dict[str, Any]]:
 
 # ── PyMuPDF fallback ───────────────────────────────────────────────────────
 
-def _extract_with_pymupdf(path: Path) -> list[dict[str, Any]]:
+def _extract_with_pymupdf(path: Path) -> tuple[list[dict[str, Any]], list[str]]:
     """
     Fallback: extracts text blocks and heuristically finds the table.
     Less accurate than pdfplumber for tables but better than nothing.

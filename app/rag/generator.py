@@ -154,7 +154,7 @@ def _extract_citations(text: str, retrieved_chunks: list) -> list:
     return out
 
 
-def _call_ollama(prompt: str, system: str) -> str:
+def _call_ollama(prompt: str, system: str) -> tuple[str, float]:
     """
     Make a blocking call to Ollama's /api/generate endpoint.
     Raises httpx.HTTPError or RuntimeError on failure.
