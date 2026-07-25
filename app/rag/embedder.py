@@ -4,7 +4,8 @@ BGE embedding wrapper — CPU-only, offline, singleton pattern.
 Uses BAAI/bge-small-en-v1.5 via sentence-transformers.
 GPU is reserved entirely for Ollama (PRD Section 7 + Section 11).
 
-Environment variables set at process start (setup.ps1):
+Environment variables set at process start (setup.ps1 / Launch*.bat / launch*.sh):
+    HF_HUB_OFFLINE=1
     TRANSFORMERS_OFFLINE=1
     HF_DATASETS_OFFLINE=1
     SENTENCE_TRANSFORMERS_HOME=<local cache dir>
@@ -13,12 +14,26 @@ import os
 import threading
 from typing import List
 
-# Force offline mode — no runtime network calls (PRD Section 12)
+# Force offline mode — no runtime network calls (PRD Section 12).
+#
+# HF_HUB_OFFLINE is the variable modern huggingface_hub (which
+# sentence-transformers >=3.x uses for all resolution) actually keys off.
+# TRANSFORMERS_OFFLINE alone does NOT stop a hub lookup on a cache miss or a
+# revision check, so without this the "no runtime network calls" guarantee was
+# asserted in this docstring but never enforced (finding S-5).
+#
+# setdefault (not assignment) is deliberate: the setup scripts intentionally
+# export these as "0" for the one-time model download, and that must keep
+# working.
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 
-from app.logger import get_logger
-from app.settings import EMBED_DEVICE, EMBED_MODEL, QUERY_PREFIX
+# E402: these imports must follow the os.environ.setdefault calls above --
+# app.settings/app.logger pull in modules that can trigger HF resolution, so
+# the offline switches have to be armed first. Suppression is deliberate.
+from app.logger import get_logger  # noqa: E402
+from app.settings import EMBED_DEVICE, EMBED_MODEL, QUERY_PREFIX  # noqa: E402
 
 log = get_logger(__name__)
 

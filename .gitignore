@@ -11,6 +11,8 @@ logs/
 
 # Data and Models
 data/models/
+*.db
+data/*.db
 chunks.tmp.jsonl
 faiss.tmp
 
@@ -21,3 +23,6 @@ faiss.tmp
 # OS specific
 .DS_Store
 Thumbs.db
+
+# Static review artifact (not part of the build)
+CODE_REVIEW.md

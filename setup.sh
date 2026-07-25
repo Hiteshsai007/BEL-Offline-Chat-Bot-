@@ -62,8 +62,8 @@ echo "Using Python: $PYTHON ($($PYTHON --version))"
 echo ""
 
 # --- Run the bootstrap -------------------------------------------------------
-"$PYTHON" "$SCRIPT_DIR/bootstrap.py" "$@"
-exit_code=$?
+exit_code=0
+"$PYTHON" "$SCRIPT_DIR/bootstrap.py" "$@" || exit_code=$?
 
 if [ $exit_code -eq 0 ]; then
     echo ""
@@ -73,6 +73,13 @@ if [ $exit_code -eq 0 ]; then
     echo "  Launch options:"
     echo "    ./launch.sh          (Web UI -- opens browser)"
     echo "    ./launch-cli.sh      (Terminal interface)"
+    echo "============================================================"
+else
+    echo ""
+    echo "============================================================"
+    echo "  SETUP FAILED!"
+    echo ""
+    echo "  Please check the log above for errors."
     echo "============================================================"
 fi
 

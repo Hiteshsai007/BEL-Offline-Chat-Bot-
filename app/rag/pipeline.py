@@ -66,8 +66,8 @@ def _format_direct_answer(results: list[RetrievedChunk]) -> str:
         c = rc.chunk
         code = c.get("error_code", "N/A")
         desc = c.get("error_description", "N/A")
-        rem  = c.get("error_remarks", "")
-        doc  = c.get("document_name", "IRL Fault Codes")
+        rem = c.get("error_remarks", "")
+        doc = c.get("document_name", "IRL Fault Codes")
 
         line = f"**{code}** — {desc}"
         if rem:
@@ -209,7 +209,7 @@ def query(question: str, session_id: Optional[str] = None) -> QueryResponse:
         return QueryResponse(
             answer=answer,
             citations=citations,
-            retrieved_chunks=[r.chunk for r in results],
+            retrieved_chunks=[{**r.chunk, "score": r.score} for r in results],
             top_score=top_score,
             latency_ms=elapsed,
             found=True,
@@ -225,7 +225,7 @@ def query(question: str, session_id: Optional[str] = None) -> QueryResponse:
         return QueryResponse(
             answer=DEGRADED_MSG,
             found=True,
-            retrieved_chunks=[r.chunk for r in results],
+            retrieved_chunks=[{**r.chunk, "score": r.score} for r in results],
             top_score=top_score,
             error=str(e),
             latency_ms=int((time.perf_counter() - t_start) * 1000),
@@ -250,7 +250,7 @@ def query(question: str, session_id: Optional[str] = None) -> QueryResponse:
     return QueryResponse(
         answer=answer,
         citations=gen_result["citations"],
-        retrieved_chunks=[r.chunk for r in results],
+        retrieved_chunks=[{**r.chunk, "score": r.score} for r in results],
         top_score=top_score,
         latency_ms=elapsed,
         found=True,

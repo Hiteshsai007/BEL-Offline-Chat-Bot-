@@ -15,6 +15,12 @@ fi
 # Activate virtual environment
 source .venv/bin/activate
 
+# Enforce offline mode -- no runtime network calls (PRD Section 12, finding S-5).
+# HF_HUB_OFFLINE is the variable modern huggingface_hub actually honours.
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+export HF_DATASETS_OFFLINE=1
+
 # Check if server is already running on port 8000
 if lsof -Pi :8000 -sTCP:LISTEN -t >/dev/null ; then
     echo "Server is already running on port 8000."
