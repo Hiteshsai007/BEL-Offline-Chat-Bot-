@@ -158,7 +158,11 @@ async def health():
             else:
                 status["ollama"] = f"http_{r.status_code}"
     except Exception as e:
-        status["ollama"] = f"error: {e}"
+        # Log the real exception server-side; return only a generic marker.
+        # str(e) on httpx/OS errors embeds absolute paths and usernames, and
+        # app.js renders this value straight into the chat UI (finding S-2).
+        log.error("Ollama health probe failed: %s", e)
+        status["ollama"] = "unreachable"
 
     overall = (
         status["index_exists"]
@@ -178,8 +182,13 @@ async def reload_index():
         get_retriever().reload()
         return {"status": "ok", "message": "Index reloaded successfully."}
     except Exception as e:
-        log.error("Reload failed: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        # Real cause goes to the log only. Returning str(e) would leak the
+        # index path and the operator's username to the browser (finding S-2).
+        log.error("Reload failed: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Index reload failed. See the server log for details.",
+        )
 
 
 # ── Entry point ─────────────────────────────────────────────────────────────
