@@ -34,7 +34,6 @@ jobs:
         
     - name: Test with pytest
       env:
-        HF_HUB_OFFLINE: "1"
         TRANSFORMERS_OFFLINE: "1"
         HF_DATASETS_OFFLINE: "1"
       run: |

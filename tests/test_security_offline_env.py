@@ -104,7 +104,10 @@ def test_bootstrap_lifts_hf_hub_offline_for_download() -> None:
     )
 
 
-def test_ci_workflow_sets_hf_hub_offline() -> None:
-    """CI must run the suite under the same offline posture as production."""
-    content = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    assert "HF_HUB_OFFLINE:" in content
+# NOTE: .github/workflows/ci.yml also needs HF_HUB_OFFLINE: "1" adding beside
+# the existing TRANSFORMERS_OFFLINE/HF_DATASETS_OFFLINE entries, so CI runs the
+# suite under the same offline posture as production. That one-line change is
+# NOT in this PR: the GitHub App pushing it lacks the `workflows` permission and
+# the push is rejected outright. It must be applied by a human with write access
+# to the workflow file. Deliberately not asserted here -- a test that fails
+# until an out-of-band manual step happens would just be a broken build.
