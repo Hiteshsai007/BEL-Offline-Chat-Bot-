@@ -26,6 +26,7 @@ PRD Requirements Implemented:
 """
 
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -34,6 +35,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import textwrap
 import time
 import urllib.error
@@ -51,6 +53,12 @@ IS_WINDOWS = platform.system() == "Windows"
 IS_LINUX = platform.system() == "Linux"
 MIN_PYTHON = (3, 11)
 TOTAL_STEPS = 8
+
+# Ollama install pinning (finding S-4). Bump deliberately after reviewing the
+# upstream release notes; the checksum manifest is fetched per release, so a
+# version bump does not require hardcoding a new digest here.
+OLLAMA_PINNED_VERSION = "v0.11.4"
+OLLAMA_RELEASE_BASE = "https://github.com/ollama/ollama/releases/download"
 
 # ANSI colours (safe on Win10+ and all modern Linux terminals)
 class _C:
@@ -358,6 +366,125 @@ def install_pip_packages() -> Result:
                       action="pip install -r requirements.txt")
     return Result("pip Packages", Status.ABSENT, Status.FAILED, detail=r.stderr[:300])
 
+def _sha256_file(path: Path) -> str:
+    """Return the hex SHA-256 digest of a file, read in chunks."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(65536), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def _download(url: str, dest: Path, timeout: int = 300) -> Optional[str]:
+    """Download url to dest. Returns None on success, or an error string."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "bel-bootstrap"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp, open(dest, "wb") as out:
+            shutil.copyfileobj(resp, out)
+        return None
+    except Exception as e:  # noqa: BLE001 - surfaced to the caller as text
+        return str(e)
+
+
+def _parse_sha256sum(text: str, filename: str) -> Optional[str]:
+    """Pull the digest for `filename` out of a sha256sum.txt style manifest."""
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and Path(parts[-1]).name == filename:
+            return parts[0].strip().lower()
+    return None
+
+
+def _install_ollama_linux_verified() -> Optional[Result]:
+    """
+    Install Ollama on Linux from a pinned, checksum-verified release tarball.
+
+    Security finding S-4. The previous implementation ran
+    ``curl -fsSL https://ollama.com/install.sh | sh`` -- unverified remote code
+    executed with shell privileges, and unpinned, so the payload could change
+    between runs. For an air-gapped defence workstation that was the weakest
+    link in the provisioning trust chain.
+
+    Ollama publishes a ``sha256sum.txt`` manifest as a release asset alongside
+    the platform tarballs (verified present on v0.5.7, v0.11.4 and v0.32.3), so
+    a genuinely verified install is possible: download the pinned tarball and
+    the manifest, compare digests, and only extract on a match.
+
+    Returns None on success, or a failing Result. Falls back to the upstream
+    install script only when BEL_ALLOW_OLLAMA_SCRIPT=1 is set explicitly.
+    """
+    machine = platform.machine().lower()
+    if machine in ("x86_64", "amd64"):
+        asset = "ollama-linux-amd64.tgz"
+    elif machine in ("aarch64", "arm64"):
+        asset = "ollama-linux-arm64.tgz"
+    else:
+        return Result("Ollama Binary", Status.ABSENT, Status.FAILED,
+                      detail=f"No pinned Ollama build for architecture {machine}")
+
+    base = f"{OLLAMA_RELEASE_BASE}/{OLLAMA_PINNED_VERSION}"
+    tmpdir = Path(tempfile.mkdtemp(prefix="bel-ollama-"))
+    try:
+        tarball = tmpdir / asset
+        log.info("Downloading %s %s ...", asset, OLLAMA_PINNED_VERSION)
+        err = _download(f"{base}/{asset}", tarball)
+        if err:
+            return _ollama_script_fallback(f"download failed: {err}")
+
+        manifest = tmpdir / "sha256sum.txt"
+        err = _download(f"{base}/sha256sum.txt", manifest, timeout=60)
+        if err:
+            return _ollama_script_fallback(f"checksum manifest unavailable: {err}")
+
+        expected = _parse_sha256sum(manifest.read_text("utf-8"), asset)
+        if not expected:
+            return _ollama_script_fallback(f"{asset} absent from sha256sum.txt")
+
+        actual = _sha256_file(tarball)
+        if actual != expected:
+            # Do not fall back here: a digest mismatch is a genuine integrity
+            # failure, not a transport problem. Fail loudly.
+            log.error("Ollama checksum MISMATCH expected=%s actual=%s", expected, actual)
+            return Result("Ollama Binary", Status.ABSENT, Status.FAILED,
+                          detail="Ollama tarball failed SHA-256 verification - aborted")
+
+        log.info("Checksum verified (%s). Extracting to /usr ...", actual[:16])
+        sudo = [] if os.geteuid() == 0 else ["sudo"]
+        r = _run(sudo + ["tar", "-C", "/usr", "-xzf", str(tarball)])
+        if r.returncode != 0:
+            return Result("Ollama Binary", Status.ABSENT, Status.FAILED,
+                          detail=f"extract failed: {r.stderr[:200]}")
+        return None
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _ollama_script_fallback(reason: str) -> Optional[Result]:
+    """
+    Last-resort fallback to the upstream install script.
+
+    Gated behind an explicit opt-in so the unverified path is never taken
+    silently. Residual risk is accepted only when the operator asks for it.
+    """
+    if os.environ.get("BEL_ALLOW_OLLAMA_SCRIPT") != "1":
+        return Result(
+            "Ollama Binary", Status.ABSENT, Status.FAILED,
+            detail=(f"Verified install unavailable ({reason}). Install Ollama "
+                    "manually, or re-run with BEL_ALLOW_OLLAMA_SCRIPT=1 to "
+                    "permit the unverified upstream install script."),
+        )
+
+    log.warning("Falling back to UNVERIFIED upstream install script (%s)", reason)
+    # Pinned to a specific version so the payload is at least reproducible.
+    cmd = (f"curl -fsSL https://ollama.com/install.sh | "
+           f"OLLAMA_VERSION={OLLAMA_PINNED_VERSION.lstrip('v')} sh")
+    r = _run(["bash", "-c", cmd])
+    if r.returncode != 0:
+        return Result("Ollama Binary", Status.ABSENT, Status.FAILED,
+                      detail=r.stderr[:300])
+    return None
+
+
 def install_ollama(os_info: dict) -> Result:
     chk = check_ollama_binary()
     if chk.before == Status.PRESENT:
@@ -366,13 +493,11 @@ def install_ollama(os_info: dict) -> Result:
     success = False
     action = ""
     if IS_LINUX:
-        log.info("Installing Ollama via install script ...")
-        r = _run(["bash", "-c", "curl -fsSL https://ollama.com/install.sh | sh"])
-        if r.returncode == 0:
-            success = True
-            action = "curl install.sh | sh"
-        else:
-            return Result("Ollama Binary", Status.ABSENT, Status.FAILED, detail=r.stderr[:300])
+        res = _install_ollama_linux_verified()
+        if res is not None:
+            return res
+        success = True
+        action = f"verified tarball {OLLAMA_PINNED_VERSION}"
     elif IS_WINDOWS:
         pm = os_info.get("pkg_manager")
         if pm == "winget":
@@ -459,7 +584,10 @@ def download_embedding_model() -> Result:
         "from sentence_transformers import SentenceTransformer; "
         f"SentenceTransformer('{model_id}', device='cpu')"
     )
-    r = _run([str(py), "-c", code], env={**os.environ, "TRANSFORMERS_OFFLINE": "0"})
+    # One-time model download: both offline switches must be lifted, or
+    # huggingface_hub refuses the fetch (finding S-5).
+    download_env = {**os.environ, "TRANSFORMERS_OFFLINE": "0", "HF_HUB_OFFLINE": "0"}
+    r = _run([str(py), "-c", code], env=download_env)
     if r.returncode == 0:
         return Result("Embedding Model", Status.ABSENT, Status.INSTALLED, model_id,
                       action=f"Downloaded {model_id}")

@@ -6,6 +6,7 @@ echo Starting BEL Offline AI CLI Interface...
 cd /d "%~dp0"
 
 :: Set offline flags
+set HF_HUB_OFFLINE=1
 set TRANSFORMERS_OFFLINE=1
 set HF_DATASETS_OFFLINE=1
 

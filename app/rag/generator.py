@@ -15,13 +15,25 @@ import time
 import httpx
 
 from app.logger import get_logger
-from app.settings import MAX_TOKENS, MODEL_TAG, OLLAMA_URL, TEMPERATURE, TIMEOUT
+from app.settings import (
+    ERROR_CODE_PATTERN,
+    MAX_TOKENS,
+    MODEL_TAG,
+    OLLAMA_URL,
+    TEMPERATURE,
+    TIMEOUT,
+)
 
 log = get_logger(__name__)
 
+# Reuse the single source of truth for what an error code looks like
+# (app/config.yaml retrieval.error_code_pattern), so the guardrail cannot
+# drift from the retriever's own notion of a valid code.
+_CODE_RE = re.compile(ERROR_CODE_PATTERN, re.IGNORECASE)
+
 # ── Fixed response strings (PRD Section 13) ────────────────────────────────
 NOT_FOUND_MSG = "This information is not available in the current documentation."
-DEGRADED_MSG  = (
+DEGRADED_MSG = (
     "The AI inference service is temporarily unavailable. "
     "Please check that Ollama is running and try again."
 )
@@ -46,16 +58,100 @@ def _build_context_block(retrieved_chunks: list) -> str:
     lines = []
     for i, rc in enumerate(retrieved_chunks, start=1):
         chunk = rc.chunk
-        doc   = chunk.get("document_name", "IRL Fault Codes")
-        code  = chunk.get("error_code") or "N/A"
-        text  = chunk.get("chunk_text", "")
+        doc = chunk.get("document_name", "IRL Fault Codes")
+        code = chunk.get("error_code") or "N/A"
+        text = chunk.get("chunk_text", "")
         lines.append(f"[{i}] {text} (Source: {doc}, Error Code: {code})")
     return "\n".join(lines)
 
 
-def _has_citation(text: str) -> bool:
-    """Check that the response contains at least one citation in [X, Y] format."""
-    return bool(re.search(r"\[.+?,\s*.+?\]", text))
+def _citable_codes(retrieved_chunks: list) -> set:
+    """Error codes actually present in the retrieved context, lower-cased."""
+    codes = set()
+    for rc in retrieved_chunks:
+        code = (rc.chunk.get("error_code") or "").strip().lower()
+        if code:
+            codes.add(code)
+    return codes
+
+
+def _citable_documents(retrieved_chunks: list) -> set:
+    """Document names actually present in the retrieved context, lower-cased."""
+    docs = set()
+    for rc in retrieved_chunks:
+        doc = (rc.chunk.get("document_name") or "").strip().lower()
+        if doc:
+            docs.add(doc)
+    return docs
+
+
+def _has_citation(text: str, retrieved_chunks: list) -> bool:
+    """
+    Validate that the response contains at least one *grounded* citation.
+
+    The previous implementation matched ``\\[.+?,\\s*.+?\\]`` — any bracketed
+    comma. "[1, 2]", "[TODO, fix]" or a markdown array all satisfied it, so the
+    guardrail the PRD positions as the anti-hallucination control could be
+    passed without citing anything real (finding S-6).
+
+    A citation is now accepted only when a bracketed span contains an error
+    code that (a) matches the configured error-code pattern and (b) actually
+    appears in the retrieved context. That is the property the guardrail is
+    supposed to enforce: every cited code is traceable to a real source chunk,
+    so a fabricated-but-plausible code like "[IRL Fault Codes.pdf, 0x9999]" is
+    rejected rather than waved through.
+
+    Fallback: when none of the retrieved chunks carry an error code (e.g. only
+    prose/footnote chunks were retrieved, which have error_code=None), a
+    bracketed span naming a real retrieved document is accepted instead —
+    otherwise the guardrail would be unsatisfiable and would loop into the
+    INSUFFICIENT_MSG fallback for legitimate prose answers.
+    """
+    spans = re.findall(r"\[([^\]]+)\]", text)
+    if not spans:
+        return False
+
+    valid_codes = _citable_codes(retrieved_chunks)
+
+    if valid_codes:
+        for span in spans:
+            for found in _CODE_RE.findall(span):
+                if found.strip().lower() in valid_codes:
+                    return True
+        return False
+
+    # No codes in context — fall back to document-name grounding.
+    valid_docs = _citable_documents(retrieved_chunks)
+    for span in spans:
+        span_l = span.lower()
+        for doc in valid_docs:
+            if doc and doc in span_l:
+                return True
+    return False
+
+
+def _extract_citations(text: str, retrieved_chunks: list) -> list:
+    """
+    Return only the bracketed spans that pass the grounded-citation check.
+
+    The old code harvested every ``[...]`` span, so the structured citation
+    list was polluted with markdown artefacts and fabricated references.
+    """
+    valid_codes = _citable_codes(retrieved_chunks)
+    valid_docs = _citable_documents(retrieved_chunks)
+    out = []
+
+    for span in re.findall(r"\[([^\]]+)\]", text):
+        grounded = any(
+            f.strip().lower() in valid_codes for f in _CODE_RE.findall(span)
+        )
+        if not grounded and not valid_codes:
+            span_l = span.lower()
+            grounded = any(doc and doc in span_l for doc in valid_docs)
+        if grounded and span not in out:
+            out.append(span)
+
+    return out
 
 
 def _call_ollama(prompt: str, system: str) -> str:
@@ -151,7 +247,7 @@ def generate(question: str, retrieved_chunks: list) -> dict:
         }
 
     # ── Citation guardrail ─────────────────────────────────────────────────
-    if not _has_citation(answer):
+    if not _has_citation(answer, retrieved_chunks):
         log.warning("Citation guardrail triggered — regenerating …")
         guardrail_triggered = True
 
@@ -167,12 +263,12 @@ def generate(question: str, retrieved_chunks: list) -> dict:
             log.error("Retry call failed: %s", e)
             answer = INSUFFICIENT_MSG
 
-        if not _has_citation(answer):
+        if not _has_citation(answer, retrieved_chunks):
             log.warning("Citation guardrail: retry also failed — using insufficient fallback.")
             answer = INSUFFICIENT_MSG
 
     # ── Extract citation strings for structured response ───────────────────
-    citations = re.findall(r"\[([^\]]+)\]", answer)
+    citations = _extract_citations(answer, retrieved_chunks)
 
     return {
         "answer": answer,
