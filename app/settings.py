@@ -1,5 +1,4 @@
 """Shared configuration loader — reads app/config.yaml once at import."""
-import os
 import yaml
 from pathlib import Path
 

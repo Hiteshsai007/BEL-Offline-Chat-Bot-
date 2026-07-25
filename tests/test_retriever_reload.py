@@ -9,7 +9,6 @@ import numpy as np
 
 from app.rag.retriever import Retriever
 from app.ingestion.ingest import run_ingestion
-from app import settings
 
 
 def test_mismatched_index_chunks_raises_value_error(tmp_path):
