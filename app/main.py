@@ -9,19 +9,22 @@ Endpoints:
 
 All traffic is loopback-only (127.0.0.1 — PRD Section 12).
 No CORS, no remote origins, no telemetry.
+
+State-changing routes (POST /query, POST /reload) are additionally guarded by
+a same-origin check — see app/security.py for the threat model (finding S-1).
 """
-import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.logger import get_logger
 from app.rag.pipeline import query as rag_query
+from app.security import verify_same_origin
 from app.settings import FAISS_INDEX_PATH, MODEL_TAG, OLLAMA_URL, SERVER_HOST, SERVER_PORT
 
 log = get_logger(__name__)
@@ -102,7 +105,7 @@ async def favicon() -> FileResponse:
     return FileResponse(str(icon_path), media_type="image/x-icon")
 
 
-@app.post("/query", response_model=QueryResponse)
+@app.post("/query", response_model=QueryResponse, dependencies=[Depends(verify_same_origin)])
 async def query_endpoint(req: QueryRequest):
     """
     Accept a plain-language question and return a grounded answer.
@@ -167,7 +170,7 @@ async def health():
     return JSONResponse(content=status, status_code=code)
 
 
-@app.post("/reload")
+@app.post("/reload", dependencies=[Depends(verify_same_origin)])
 async def reload_index():
     """Hot-reload the FAISS index after running the ingestion script."""
     try:

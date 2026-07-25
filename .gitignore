@@ -21,3 +21,6 @@ faiss.tmp
 # OS specific
 .DS_Store
 Thumbs.db
+
+# Static review artifact (not part of the build)
+CODE_REVIEW.md
