@@ -105,32 +105,41 @@ def test_generate_ollama_generic_error() -> None:
     assert "error" in result
 
 
-def test_call_ollama_parses_response() -> None:
+def test_call_ollama_parses_inside_context_manager() -> None:
     """
-    _call_ollama must return the parsed answer and latency.
+    H-14: resp.json() must be called inside the httpx.Client context manager.
 
-    H-14 regression guard: resp.json() must be called inside the
-    httpx.Client context manager.  If someone moves it outside the
-    ``with`` block this test will still pass *today* because httpx
-    buffers the body, but the assertion on json() being called verifies
-    the current structure.  A future streaming change would break an
-    out-of-block resp.json() and this comment documents that risk.
+    If someone moves resp.json() outside the ``with`` block this test will
+    fail because we explicitly verify call order: json() before __exit__.
     """
+    call_order: list[str] = []
+
     mock_response = MagicMock()
-    mock_response.json.return_value = {"response": "  Test answer  "}
+
+    def track_json() -> dict:
+        call_order.append("json")
+        return {"response": "  Test answer  "}
+
+    mock_response.json.side_effect = track_json
     mock_response.raise_for_status.return_value = None
 
     mock_client = MagicMock()
     mock_client.post.return_value = mock_response
 
+    def track_exit(*args, **kwargs) -> bool:
+        call_order.append("exit")
+        return False
+
     with patch("app.rag.generator.httpx.Client") as MockClient:
         MockClient.return_value.__enter__ = MagicMock(return_value=mock_client)
-        MockClient.return_value.__exit__ = MagicMock(return_value=False)
+        MockClient.return_value.__exit__ = track_exit
 
         answer, elapsed = _call_ollama("prompt", "system")
 
     mock_client.post.assert_called_once()
-    mock_response.json.assert_called_once()
+    assert call_order.index("json") < call_order.index("exit"), (
+        "resp.json() must be called before the httpx.Client context exits"
+    )
     assert answer == "Test answer"
     assert isinstance(elapsed, float)
     assert elapsed >= 0.0
