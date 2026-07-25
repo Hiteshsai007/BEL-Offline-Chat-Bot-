@@ -13,7 +13,7 @@ from app.rag.embedder import get_embedder
 console = Console()
 
 
-def main():
+def main() -> None:
     # Print welcome banner
     console.print(Panel.fit(
         "[bold cyan]BEL Technical Mentorship — Offline AI Interface[/bold cyan]\n"

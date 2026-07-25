@@ -146,7 +146,7 @@ def _extract_citations(text: str, retrieved_chunks: list) -> list:
     return out
 
 
-def _call_ollama(prompt: str, system: str) -> str:
+def _call_ollama(prompt: str, system: str) -> tuple[str, float]:
     """
     Make a blocking call to Ollama's /api/generate endpoint.
     Raises httpx.HTTPError or RuntimeError on failure.
@@ -168,9 +168,9 @@ def _call_ollama(prompt: str, system: str) -> str:
     with httpx.Client(timeout=TIMEOUT) as client:
         resp = client.post(url, json=payload)
         resp.raise_for_status()
+        result = resp.json()
 
     elapsed_ms = (time.perf_counter() - t0) * 1000
-    result = resp.json()
     answer = result.get("response", "").strip()
 
     log.info("Ollama response in %.0fms (%d chars)", elapsed_ms, len(answer))
