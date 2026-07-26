@@ -98,6 +98,49 @@ class TestQuerySessionEndpoint(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["status"], "ok")
 
+    @patch("app.rag.pipeline.get_retriever")
+    def test_fresh_question_not_expanded_with_history_code(self, mock_get_retriever):
+        """
+        A fresh question without pronouns (e.g. 'How do I check tire pressure')
+        must NOT be expanded with a fault code from previous conversation history.
+        Only queries with explicit anaphoric references (pronouns like 'it', 'this',
+        'the error') should inherit codes from history.
+        """
+        mock_retriever = MagicMock()
+        mock_chunk = {
+            "error_code": None,
+            "error_description": "Tire pressure inspection",
+            "error_remarks": "Check when cold",
+            "document_name": "Kawasaki Manual",
+        }
+        mock_retriever.retrieve.return_value = [
+            MagicMock(chunk=mock_chunk, score=0.75)
+        ]
+        mock_get_retriever.return_value = mock_retriever
+
+        session_id = "test_no_expansion_123"
+
+        # Turn 1: establish a fault code in history
+        resp1 = self.client.post(
+            "/query",
+            json={"question": "What does 0x0027 mean?", "session_id": session_id},
+        )
+        self.assertEqual(resp1.status_code, 200)
+
+        # Turn 2: fresh question, no pronouns — should NOT get 0x0027 appended
+        resp2 = self.client.post(
+            "/query",
+            json={"question": "How do I check tire pressure", "session_id": session_id},
+        )
+        self.assertEqual(resp2.status_code, 200)
+
+        # Verify retriever was called with the ORIGINAL question, no code appended
+        calls = mock_retriever.retrieve.call_args_list
+        self.assertTrue(len(calls) >= 2)
+        second_call_arg = calls[1][0][0]
+        self.assertNotIn("0x0027", second_call_arg)
+        self.assertEqual(second_call_arg, "How do I check tire pressure")
+
 
 if __name__ == "__main__":
     unittest.main()

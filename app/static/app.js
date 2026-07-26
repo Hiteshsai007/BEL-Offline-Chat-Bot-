@@ -188,11 +188,23 @@ function addAIMessage(data) {
       content += '<div class="msg-sources">';
       content += '<div class="msg-sources-label">📄 Retrieved Sources</div>';
       data.retrieved_chunks.forEach(c => {
-        content += `<div class="source-item">
-          <span class="source-code">${escHtml(c.error_code || 'N/A')}</span>
-          <span class="source-desc">${escHtml(c.error_description || '')}</span>
-          <span class="source-remarks">${escHtml(c.error_remarks || '')}</span>
-        </div>`;
+        if (c.error_code) {
+          // Fault-code chunk
+          content += `<div class="source-item">
+            <span class="source-code">${escHtml(c.error_code)}</span>
+            <span class="source-desc">${escHtml(c.error_description || '')}</span>
+            <span class="source-remarks">${escHtml(c.error_remarks || '')}</span>
+          </div>`;
+        } else {
+          // General document chunk — show doc name + page
+          const doc = c.document_name || 'Unknown';
+          const shortDoc = doc.length > 30 ? doc.substring(0, 27) + '...' : doc;
+          const page = c.page_number ? `page ${c.page_number}` : '';
+          content += `<div class="source-item">
+            <span class="source-code">${escHtml(shortDoc)}</span>
+            <span class="source-desc">${escHtml(page)}</span>
+          </div>`;
+        }
       });
       content += '</div>';
     }

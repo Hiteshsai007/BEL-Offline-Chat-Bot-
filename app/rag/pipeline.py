@@ -90,22 +90,31 @@ def _format_direct_answer(results: list[RetrievedChunk]) -> str:
 def _expand_query_from_history(question: str, history: list[dict]) -> str:
     """
     Lightweight rule-based query context expansion.
-    If the question contains pronouns/follow-up triggers or lacks an error code,
-    extract recent error codes from history to aid FAISS retrieval.
+    If the question contains pronouns/follow-up triggers that refer back
+    to a recent fault code, extract that code from the most recent
+    conversation turn to aid FAISS retrieval.
+
+    Only expands when the query has an explicit anaphoric reference
+    (pronoun like "it", "this", "the error") -- NOT just because the
+    query is short.
+
+    Only searches the last 2 history messages (most recent turn pair),
+    not the entire conversation.  The LLM has the full history block in
+    its prompt for deeper context resolution -- this expansion is only
+    to help FAISS retrieval find the right chunks.
     """
     if not history:
         return question
 
     q_lower = question.lower()
     has_pronoun = any(re.search(pat, q_lower) for pat in _PRONOUN_PATTERNS)
-    has_code = bool(_ERROR_CODE_REGEX.search(question))
-    is_short = len(question.split()) <= 6
 
-    if not (has_pronoun or (not has_code and is_short)):
+    if not has_pronoun:
         return question
 
-    # Scan history backwards for error codes
-    for msg in reversed(history):
+    # Only look at the most recent turn (last 2 messages)
+    recent = history[-2:] if len(history) >= 2 else history
+    for msg in reversed(recent):
         content = msg.get("content", "")
         code_match = _ERROR_CODE_REGEX.search(content)
         if code_match:

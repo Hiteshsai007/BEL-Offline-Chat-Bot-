@@ -8,11 +8,19 @@ Retrieval flow (PRD Section 5):
      filter by confidence_threshold, return top return_n chunks.
   3. If nothing clears the threshold, return [] — the pipeline must
      return the not-found message without invoking the LLM.
+
+Multi-index support:
+  If the general-document index exists at data/index/general/, it is
+  loaded alongside the fault-code index.  Semantic searches query both
+  indexes and merge results by score.  Exact code lookups only search
+  the fault-code index (general documents don't have error codes).
+  The general index is optional — its absence is silently ignored.
 """
 import re
 import threading
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -31,6 +39,11 @@ log = get_logger(__name__)
 
 _lock = threading.Lock()
 _retriever_instance = None
+
+# General-document index paths (mirrors ingest_general.py constants)
+_GENERAL_INDEX_DIR = FAISS_INDEX_PATH.parent / "general"
+_GENERAL_FAISS_PATH = _GENERAL_INDEX_DIR / "faiss.index"
+_GENERAL_CHUNKS_PATH = _GENERAL_INDEX_DIR / "chunks.jsonl"
 
 
 @dataclass
@@ -62,6 +75,7 @@ class Retriever:
                 "Run the ingestion script first."
             )
 
+        # ── Primary (fault-code) index ──
         log.info("Loading FAISS index from %s …", index_path)
         self._index = faiss.read_index(str(index_path))
         log.info("FAISS index loaded: %d vectors", self._index.ntotal)
@@ -84,6 +98,45 @@ class Retriever:
                 self._code_index.setdefault(code, []).append(chunk)
 
         self._code_pattern = re.compile(ERROR_CODE_PATTERN, re.IGNORECASE)
+
+        # ── General-document index (optional) ──
+        self._general_index = None
+        self._general_chunks: list[dict] = []
+        self._load_general_index()
+
+    def _load_general_index(self) -> None:
+        """Load the general-document index if it exists. Silent no-op if not."""
+        import faiss  # type: ignore
+
+        if not _GENERAL_FAISS_PATH.exists() or not _GENERAL_CHUNKS_PATH.exists():
+            log.info(
+                "General-document index not found at %s — skipping.",
+                _GENERAL_INDEX_DIR,
+            )
+            return
+
+        try:
+            self._general_index = faiss.read_index(str(_GENERAL_FAISS_PATH))
+            self._general_chunks = load_chunks(_GENERAL_CHUNKS_PATH)
+
+            if len(self._general_chunks) != self._general_index.ntotal:
+                log.warning(
+                    "General index fidelity violation: %d vectors vs %d chunks — "
+                    "disabling general index.",
+                    self._general_index.ntotal, len(self._general_chunks),
+                )
+                self._general_index = None
+                self._general_chunks = []
+                return
+
+            log.info(
+                "General-document index loaded: %d vectors",
+                self._general_index.ntotal,
+            )
+        except Exception as e:
+            log.warning("Failed to load general index (%s) — skipping.", e)
+            self._general_index = None
+            self._general_chunks = []
 
     # ── Exact code lookup ────────────────────────────────────────────────
 
@@ -109,21 +162,42 @@ class Retriever:
         import faiss  # type: ignore
         faiss.normalize_L2(q_vec)
 
-        k = min(TOP_K, self._index.ntotal)
-        scores, indices = self._index.search(q_vec, k)
+        # Search primary (fault-code) index
+        results = self._search_index(
+            self._index, self._chunks, q_vec, TOP_K,
+        )
+
+        # Search general-document index if loaded
+        if self._general_index is not None:
+            general_results = self._search_index(
+                self._general_index, self._general_chunks, q_vec, TOP_K,
+            )
+            results.extend(general_results)
+
+        # Merge, sort descending by score, take top return_n
+        results.sort(key=lambda r: r.score, reverse=True)
+        return results[:RETURN_N]
+
+    def _search_index(
+        self,
+        index: Any,
+        chunks: list[dict],
+        q_vec: "np.ndarray",
+        top_k: int,
+    ) -> list[RetrievedChunk]:
+        """Search a single FAISS index and return results above threshold."""
+        k = min(top_k, index.ntotal)
+        scores, indices = index.search(q_vec, k)
 
         results = []
         for score, idx in zip(scores[0], indices[0]):
             if idx < 0:
                 continue
-            similarity = float(score)  # already cosine (normalised IP)
+            similarity = float(score)
             if similarity < CONFIDENCE_THRESHOLD:
                 continue
-            results.append(RetrievedChunk(chunk=self._chunks[idx], score=similarity))
-
-        # Sort descending, take top return_n
-        results.sort(key=lambda r: r.score, reverse=True)
-        return results[:RETURN_N]
+            results.append(RetrievedChunk(chunk=chunks[idx], score=similarity))
+        return results
 
     # ── Public API ───────────────────────────────────────────────────────
 
@@ -170,7 +244,13 @@ class Retriever:
                 if code:
                     self._code_index.setdefault(code, []).append(chunk)
 
-            log.info("Retriever reloaded: %d vectors, %d chunks", self._index.ntotal, len(self._chunks))
+            # Also reload general index if it exists
+            self._load_general_index()
+
+            total = self._index.ntotal + (
+                self._general_index.ntotal if self._general_index else 0
+            )
+            log.info("Retriever reloaded: %d total vectors", total)
 
 
 def get_retriever() -> Retriever:

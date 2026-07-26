@@ -199,7 +199,27 @@ All parameters are in [`app/config.yaml`](app/config.yaml) — no code changes n
 | `retrieval.confidence_threshold` | `0.50` | Raise to reduce false positives |
 | `retrieval.return_n` | `3` | Chunks passed to the LLM as context |
 | `model.temperature` | `0.1` | Lower = more deterministic answers |
-| `model.ollama_tag` | `qwen2.5:3b` | Change to upgrade the LLM |
+| `model.ollama_tag` | `qwen2.5:3b` | Change to upgrade the LLM (see below) |
+
+### LLM Model Options
+
+The LLM model is configured via `model.ollama_tag` in `app/config.yaml`.
+Changing this single value switches the model everywhere (API calls,
+health checks, bootstrap pull). After changing, run setup once to pull
+the new model: `ollama pull <new tag>`.
+
+| Tag | Disk | VRAM/RAM | Context | Notes |
+|-----|------|----------|---------|-------|
+| `qwen2.5:3b` | ~2 GB | ~3 GB | 32K | Default. Fast, good for structured fault-code lookup |
+| `qwen2.5:7b` | ~5 GB | ~6 GB | 32K | Better prose synthesis, recommended for general documents |
+| `qwen2.5:14b` | ~9 GB | ~10 GB | 32K | High quality, needs 16 GB system RAM minimum |
+
+Disk sizes are Ollama download sizes (Q4_K_M quantization).
+Context windows shown are Ollama's default build (32K).  The qwen2.5
+family supports up to 128K context per Qwen's paper, but Ollama's
+default builds ship with 32K.  To use a larger context window requires
+a custom Modelfile — the default install does not support 128K out of
+the box.
 
 ---
 
@@ -219,6 +239,6 @@ All parameters are in [`app/config.yaml`](app/config.yaml) — no code changes n
 |---|---|
 | "Index not found" error | Run `python -m app.ingestion.ingest` |
 | Status shows "Ollama not running" | Start Ollama: `ollama serve` |
-| "qwen2.5:3b not found" | Run `ollama pull qwen2.5:3b` |
+| Model tag not found (e.g. "qwen2.5:7b") | Run `ollama pull qwen2.5:7b` (must match `model.ollama_tag` in config.yaml) |
 | Very slow responses | Check GPU is being used by Ollama: `nvidia-smi` |
 | Sub-500ms response (suspicious) | Check logs — model may not be loaded |

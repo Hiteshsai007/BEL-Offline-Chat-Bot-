@@ -51,7 +51,8 @@ Rules:
 - Answer only using the numbered context passages below.
 - If the answer is not present in the context, respond exactly with:
   "This information is not available in the current documentation."
-- Cite every supported statement as [Document, Error Code/Section].
+- Cite every supported statement as [Document Name, Error Code] or
+  [Document Name, page N] for documents without error codes.
 - Do not cite Previous Conversation. Cite ONLY from the numbered Context passages.
 - Do not use any knowledge beyond the provided context.
 - Be concise and precise. Do not speculate."""
@@ -64,8 +65,15 @@ def _build_context_block(retrieved_chunks: list) -> str:
         chunk = rc.chunk
         doc = chunk.get("document_name", "IRL Fault Codes")
         code = chunk.get("error_code") or "N/A"
+        page = chunk.get("page_number")
         text = chunk.get("chunk_text", "")
-        lines.append(f"[{i}] {text} (Source: {doc}, Error Code: {code})")
+        # Include page number for general documents (no error codes)
+        if code != "N/A":
+            lines.append(f"[{i}] {text} (Source: {doc}, Error Code: {code})")
+        elif page is not None:
+            lines.append(f"[{i}] {text} (Source: {doc}, page {page})")
+        else:
+            lines.append(f"[{i}] {text} (Source: {doc})")
     return "\n".join(lines)
 
 
@@ -103,6 +111,16 @@ def _citable_documents(retrieved_chunks: list) -> set:
     return docs
 
 
+def _citable_pages(retrieved_chunks: list) -> set:
+    """Page numbers actually present in the retrieved context, as strings."""
+    pages = set()
+    for rc in retrieved_chunks:
+        page = rc.chunk.get("page_number")
+        if page is not None:
+            pages.add(str(page))
+    return pages
+
+
 def _has_citation(text: str, retrieved_chunks: list) -> bool:
     """
     Validate that the response contains at least one *grounded* citation.
@@ -114,18 +132,27 @@ def _has_citation(text: str, retrieved_chunks: list) -> bool:
     valid_codes = _citable_codes(retrieved_chunks)
 
     if valid_codes:
+        # Fault-code documents: require at least one error code citation
         for span in spans:
             for found in _CODE_RE.findall(span):
                 if found.strip().lower() in valid_codes:
                     return True
         return False
 
+    # General documents (no error codes): accept document name + page number
     valid_docs = _citable_documents(retrieved_chunks)
+    valid_pages = _citable_pages(retrieved_chunks)
     for span in spans:
         span_l = span.lower()
-        for doc in valid_docs:
-            if doc and doc in span_l:
-                return True
+        has_doc = any(doc and doc in span_l for doc in valid_docs)
+        has_page = any(
+            re.search(rf"\bpage\s*{re.escape(p)}\b", span_l)
+            or re.search(rf"\bp\.?\s*{re.escape(p)}\b", span_l)
+            for p in valid_pages
+        )
+        # Accept: document name present, or page number present, or both
+        if has_doc or has_page:
+            return True
     return False
 
 
@@ -135,6 +162,7 @@ def _extract_citations(text: str, retrieved_chunks: list) -> list:
     """
     valid_codes = _citable_codes(retrieved_chunks)
     valid_docs = _citable_documents(retrieved_chunks)
+    valid_pages = _citable_pages(retrieved_chunks)
     out = []
 
     for span in re.findall(r"\[([^\]]+)\]", text):
@@ -142,8 +170,15 @@ def _extract_citations(text: str, retrieved_chunks: list) -> list:
             f.strip().lower() in valid_codes for f in _CODE_RE.findall(span)
         )
         if not grounded and not valid_codes:
+            # General documents: accept document name or page number
             span_l = span.lower()
-            grounded = any(doc and doc in span_l for doc in valid_docs)
+            has_doc = any(doc and doc in span_l for doc in valid_docs)
+            has_page = any(
+                re.search(rf"\bpage\s*{re.escape(p)}\b", span_l)
+                or re.search(rf"\bp\.?\s*{re.escape(p)}\b", span_l)
+                for p in valid_pages
+            )
+            grounded = has_doc or has_page
         if grounded and span not in out:
             out.append(span)
 
@@ -244,15 +279,27 @@ def generate(question: str, retrieved_chunks: list, history: list | None = None)
         log.warning("Citation guardrail triggered — regenerating …")
         guardrail_triggered = True
 
+        # Tailor the citation instruction to the document type
+        has_codes = bool(_citable_codes(retrieved_chunks))
+        if has_codes:
+            cite_instruction = (
+                "IMPORTANT: Your answer MUST include at least one citation "
+                "in the format [Document Name, Error Code]. Do not omit "
+                "citations."
+            )
+        else:
+            cite_instruction = (
+                "IMPORTANT: Your answer MUST include at least one citation "
+                "in the format [Document Name, page N] where N is the page "
+                "number from the source. Do not omit citations."
+            )
+
         retry_parts = []
         if history_block:
             retry_parts.append(history_block)
         retry_parts.append(f"Context:\n{context_block}")
         retry_parts.append(f"Question: {question}")
-        retry_parts.append(
-            "IMPORTANT: Your answer MUST include at least one citation in the "
-            "format [Document Name, Error Code]. Do not omit citations."
-        )
+        retry_parts.append(cite_instruction)
         retry_prompt = "\n\n".join(retry_parts)
         try:
             answer, elapsed_ms = _call_ollama(retry_prompt, _SYSTEM_PROMPT)

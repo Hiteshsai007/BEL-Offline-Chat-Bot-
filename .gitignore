@@ -26,3 +26,8 @@ Thumbs.db
 
 # Static review artifact (not part of the build)
 CODE_REVIEW.md
+
+
+data/source_documents/
+
+data/index/general/

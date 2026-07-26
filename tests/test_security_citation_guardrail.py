@@ -160,3 +160,78 @@ def test_extract_citations_deduplicates() -> None:
 
 def test_extract_citations_empty_for_fabricated_only() -> None:
     assert _extract_citations(f"[{DOC}, 0x9999]", CONTEXT) == []
+
+
+# ── Page-number citations for general documents ─────────────────────────────
+
+def _general_chunk(
+    doc: str = "Kawasaki Manual.pdf", page: int = 170,
+) -> RetrievedChunk:
+    """Build a RetrievedChunk for a general document (no error code)."""
+    return RetrievedChunk(
+        chunk={
+            "error_code": None,
+            "document_name": doc,
+            "error_description": None,
+            "error_remarks": None,
+            "chunk_text": "Check tire pressure when tires are cold.",
+            "chunk_type": "prose",
+            "page_number": page,
+        },
+        score=0.75,
+    )
+
+
+GENERAL_CONTEXT = [_general_chunk("Kawasaki Manual.pdf", 170)]
+
+
+def test_accepts_page_number_citation_for_general_doc() -> None:
+    """General documents cite by page number, not error code."""
+    answer = (
+        "Check tire pressure when the tires are cold. "
+        "[Kawasaki Manual.pdf, page 170]"
+    )
+    assert _has_citation(answer, GENERAL_CONTEXT) is True
+
+
+def test_accepts_page_number_short_format() -> None:
+    """Short page format like 'p. 170' should also be accepted."""
+    answer = "Check tire pressure when cold. [Kawasaki Manual.pdf, p. 170]"
+    assert _has_citation(answer, GENERAL_CONTEXT) is True
+
+
+def test_rejects_wrong_page_number_for_general_doc() -> None:
+    """A citation with wrong page BUT correct document is still accepted
+    (document-level grounding is sufficient). Wrong page + wrong doc is rejected."""
+    # Wrong page, right doc -> accepted (document name grounds it)
+    answer_ok = "Check tire pressure. [Kawasaki Manual.pdf, page 999]"
+    assert _has_citation(answer_ok, GENERAL_CONTEXT) is True
+    # Wrong page, wrong doc -> rejected
+    answer_bad = "Check tire pressure. [Honda Manual.pdf, page 999]"
+    assert _has_citation(answer_bad, GENERAL_CONTEXT) is False
+
+
+def test_accepts_document_name_only_for_general_doc() -> None:
+    """A citation containing just the document name is accepted."""
+    answer = "Check tire pressure when cold. [Kawasaki Manual.pdf]"
+    assert _has_citation(answer, GENERAL_CONTEXT) is True
+
+
+def test_extract_citations_page_number_format() -> None:
+    """Page-number citations are extracted correctly."""
+    answer = (
+        "Check tire pressure when cold. "
+        "[Kawasaki Manual.pdf, page 170]"
+    )
+    citations = _extract_citations(answer, GENERAL_CONTEXT)
+    assert len(citations) == 1
+    assert "page 170" in citations[0]
+
+
+def test_build_context_block_includes_page_for_general_doc() -> None:
+    """Context block includes page number for general documents."""
+    from app.rag.generator import _build_context_block
+
+    block = _build_context_block(GENERAL_CONTEXT)
+    assert "page 170" in block
+    assert "Error Code: N/A" not in block

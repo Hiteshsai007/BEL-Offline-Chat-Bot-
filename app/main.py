@@ -87,6 +87,8 @@ class ChunkInfo(BaseModel):
     error_description: str | None
     error_remarks: str | None
     document_name: str | None
+    page_number: int | None = None
+    chunk_type: str | None = None
     score: float
 
 
@@ -149,6 +151,8 @@ def query_endpoint(req: QueryRequest) -> QueryResponse:
             error_description=c.get("error_description"),
             error_remarks=c.get("error_remarks"),
             document_name=c.get("document_name"),
+            page_number=c.get("page_number"),
+            chunk_type=c.get("chunk_type"),
             score=c.get("score", 0.0),
         ))
 

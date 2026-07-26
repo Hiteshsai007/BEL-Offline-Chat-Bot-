@@ -2,7 +2,21 @@
 # All tunables live here. No code changes needed for common adjustments.
 
 model:
-  # Ollama model tag — change to upgrade LLM without touching code
+  # Ollama model tag — change to upgrade LLM without touching code.
+  # After changing, re-run setup (ollama pull <new tag>) once.
+  #
+  # Recommended options (Q4_K_M quantization, default Ollama build):
+  #   qwen2.5:3b   ~2 GB disk,  ~3 GB VRAM  — current default, fast, 32K context
+  #   qwen2.5:7b   ~5 GB disk,  ~6 GB VRAM  — better prose synthesis, 32K context
+  #   qwen2.5:14b  ~9 GB disk, ~10 GB VRAM  — high quality, needs 16 GB RAM, 32K context
+  #
+  # Disk sizes are Ollama download sizes (Q4_K_M quantization).
+  # Context windows are Ollama's default build (32K).  The model family
+  # supports up to 128K per Qwen's paper, but Ollama ships 32K by default.
+  #
+  # The 7b model is recommended for general-document queries (manuals,
+  # guides) where longer context and prose synthesis matter.  The 3b
+  # model is sufficient for the structured fault-code corpus.
   ollama_tag: "qwen2.5:3b"
   # Ollama listens on loopback ONLY (Section 12 — no remote inference)
   ollama_url: "http://127.0.0.1:11434"
