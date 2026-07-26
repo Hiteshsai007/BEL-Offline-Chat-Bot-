@@ -1,12 +1,16 @@
 """
 Ollama inference wrapper with citation guardrail.
 
-PRD guarantees (Section 4, 5, 13):
-  • Every grounded answer is produced by an actual LLM call (FR-4).
+This module is invoked by the pipeline only for queries that fall below
+the DIRECT_ANSWER_THRESHOLD — i.e. ambiguous or low-confidence retrieval
+results where the structured fast-path template is insufficient.
+
+Guarantees when this module IS called:
   • The generator is NEVER called when retrieval returns nothing.
   • Output is checked for citations; one regeneration attempt is made
     if the first response fails the citation check.
-  • If both attempts fail, a "documentation insufficient" fallback is returned.
+  • If both attempts fail, a "documentation insufficient" fallback is
+    returned.
   • Response latency is logged — sub-500ms is flagged as suspicious.
 """
 import re
