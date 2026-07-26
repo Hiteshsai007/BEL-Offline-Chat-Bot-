@@ -99,10 +99,14 @@ async function checkHealth() {
 
     if (data.ready) {
       setStatus('ok', 'System ready');
-    } else if (data.index_exists && data.ollama !== 'ok') {
-      setStatus('warn', 'Ollama not running');
+    } else if (data.ready === false && !data.startup_ready) {
+      // 503 from H-7: startup failed (embedder/index didn't load).
+      // Show a calm "starting up" message rather than a generic error.
+      setStatus('warn', 'Starting up\u2026');
     } else if (!data.index_exists) {
       setStatus('warn', 'Index not built');
+    } else if (data.ollama !== 'ok') {
+      setStatus('warn', 'Ollama not running');
     } else {
       setStatus('warn', 'Partial ready');
     }
