@@ -72,6 +72,7 @@ TOP_K: int = _get(CFG, "retrieval", "top_k")
 CONFIDENCE_THRESHOLD: float = _get(CFG, "retrieval", "confidence_threshold")
 RETURN_N: int = _get(CFG, "retrieval", "return_n")
 ERROR_CODE_PATTERN: str = _get(CFG, "retrieval", "error_code_pattern")
+DIRECT_ANSWER_THRESHOLD: float = _get(CFG, "retrieval", "direct_answer_threshold")
 
 # Paths are relative to the project root (one level up from app/)
 _ROOT = Path(__file__).parent.parent
