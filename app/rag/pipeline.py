@@ -38,13 +38,9 @@ from app.rag.generator import (
 )
 from app.rag.retriever import RetrievedChunk, get_retriever
 from app.session import get_session_store
-from app.settings import MAX_HISTORY_TURNS
+from app.settings import DIRECT_ANSWER_THRESHOLD, MAX_HISTORY_TURNS
 
 log = get_logger(__name__)
-
-# If the top retrieval score is above this, skip the LLM and answer directly.
-# Exact code matches always score 1.0; strong semantic hits score 0.65+.
-DIRECT_ANSWER_THRESHOLD = 0.60
 
 _ERROR_CODE_REGEX = re.compile(r"0x[0-9a-fA-F]{4}", re.IGNORECASE)
 _PRONOUN_PATTERNS = [

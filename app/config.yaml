@@ -28,6 +28,11 @@ retrieval:
   return_n: 3
   # Regex pattern to trigger exact error-code direct lookup (bypasses embedding)
   error_code_pattern: "0x[0-9a-fA-F]{4}"
+  # Score at or above this → deterministic template answer (fast path).
+  # Below this → LLM synthesis (slow path).
+  # Exact code lookups always score 1.0 regardless of this value.
+  # See scripts/verify_threshold_scores.py to validate against real embeddings.
+  direct_answer_threshold: 0.80
 
 paths:
   faiss_index: "data/index/faiss.index"
