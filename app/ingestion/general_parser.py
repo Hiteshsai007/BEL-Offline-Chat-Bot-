@@ -42,9 +42,16 @@ def sha256_file(path: Path) -> str:
 
 
 def _clean(text: str | None) -> str:
-    """Collapse internal whitespace, strip edges."""
+    """Collapse internal whitespace, normalize concatenated words, and strip edges."""
     if not text:
         return ""
+    # Insert space between lowercase and uppercase letter (e.g. FuelTank -> Fuel Tank)
+    text = re.sub(r'([a-z])([A-Z])', r'\1 \2', text)
+    # Insert space between multiple uppercase and CamelCase (e.g. GENERALINFORMATION -> GENERAL INFORMATION)
+    text = re.sub(r'([A-Z]{2,})([A-Z][a-z])', r'\1 \2', text)
+    # Insert space between digits and letters (e.g. 17L -> 17 L, 4.5USgal -> 4.5 US gal)
+    text = re.sub(r'(\d+(?:\.\d+)?)([a-zA-Z]+)', r'\1 \2', text)
+    text = re.sub(r'([a-zA-Z]+)(\d+(?:\.\d+)?)', r'\1 \2', text)
     return " ".join(text.split())
 
 
@@ -120,7 +127,7 @@ def _extract_with_pdfplumber(
                 items.append({
                     "type": "prose",
                     "page_number": page_num,
-                    "text": text.strip(),
+                    "text": _clean(text),
                     "section_heading": current_heading,
                 })
 
@@ -153,7 +160,7 @@ def _extract_with_pymupdf(path: Path) -> list[dict[str, Any]]:
             items.append({
                 "type": "prose",
                 "page_number": page_num,
-                "text": text.strip(),
+                "text": _clean(text),
                 "section_heading": current_heading,
             })
 
@@ -285,21 +292,21 @@ def parse_general_pdf(
     source_hash = sha256_file(path)
     log.info("Source SHA-256: %s", source_hash)
 
-    # -- Primary extraction via pdfplumber --
+    # -- Primary extraction via PyMuPDF for clean word spacing --
     items: list[dict[str, Any]] = []
     try:
-        items = _extract_with_pdfplumber(path)
-        log.info("pdfplumber extracted %d content items", len(items))
+        items = _extract_with_pymupdf(path)
+        log.info("PyMuPDF extracted %d content items", len(items))
     except Exception as e:
-        log.warning("pdfplumber failed (%s) -- trying PyMuPDF fallback", e)
+        log.warning("PyMuPDF failed (%s) -- trying pdfplumber fallback", e)
 
-    # Fallback if pdfplumber returned nothing
+    # Fallback if PyMuPDF returned nothing
     if not items:
         try:
-            items = _extract_with_pymupdf(path)
-            log.info("PyMuPDF fallback extracted %d items", len(items))
+            items = _extract_with_pdfplumber(path)
+            log.info("pdfplumber fallback extracted %d items", len(items))
         except Exception as e:
-            log.error("PyMuPDF also failed: %s", e)
+            log.error("pdfplumber also failed: %s", e)
 
     if not items:
         raise RuntimeError(

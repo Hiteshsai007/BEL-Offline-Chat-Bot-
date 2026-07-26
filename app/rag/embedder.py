@@ -65,12 +65,14 @@ class BGEEmbedder:
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """Embed a batch of document chunks (no prefix for documents)."""
+        # Use smaller batch size on memory-constrained systems
+        _batch_size = int(os.environ.get("BEL_EMBED_BATCH_SIZE", "32"))
         vecs = self._model.encode(
             texts,
             convert_to_numpy=True,
             normalize_embeddings=True,
             show_progress_bar=len(texts) > 20,
-            batch_size=32,
+            batch_size=_batch_size,
         )
         return vecs.tolist()
 

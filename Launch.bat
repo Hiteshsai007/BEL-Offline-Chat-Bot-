@@ -8,10 +8,25 @@ cd /d "%~dp0"
 :: Create logs folder if it doesn't exist
 if not exist "logs" mkdir logs
 
+:: Check if setup has been run; if not, automatically run first-time setup
+if not exist ".venv" (
+    echo Virtual environment not found. Running first-time setup...
+    call First-Time-Setup.bat
+    if %errorlevel% neq 0 (
+        echo Setup failed. Aborting launch.
+        pause
+        exit /b 1
+    )
+)
+
 :: Set offline flags
 set HF_HUB_OFFLINE=1
 set TRANSFORMERS_OFFLINE=1
 set HF_DATASETS_OFFLINE=1
+
+:: Stop any existing server running on port 8000 so new code & config takes effect
+powershell -NoProfile -Command "$p = (Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue).OwningProcess; if ($p) { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue }"
+timeout /t 1 /nobreak > NUL
 
 :: Start the server in the background
 start /B .venv\Scripts\python.exe -m app.main > logs\startup.log 2>&1

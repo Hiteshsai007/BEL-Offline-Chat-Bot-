@@ -11,9 +11,9 @@ Authors: B V Hitesh Sai, Charan Gowda M D, Harsha B, Akshay
 | Component | Requirement |
 |---|---|
 | Python | 3.11 or later |
-| GPU | ≥ 4 GB VRAM (NVIDIA recommended) |
-| RAM | ≥ 8 GB system memory |
-| Disk Space | ≥ 6 GB free on the drive where BEL is installed (for the AI model, Python packages, and temporary download files) |
+| GPU | Optional (NVIDIA recommended for faster inference) |
+| RAM | >= 4 GB system memory (8 GB recommended) |
+| Disk Space | >= 6 GB free on the drive where BEL is installed (for the AI model, Python packages, and temporary download files) |
 | Ollama | Installed and running |
 | OS | Windows 10/11 or Linux (Ubuntu/Debian) |
 | Network | Not required after first setup |
@@ -25,7 +25,7 @@ Authors: B V Hitesh Sai, Charan Gowda M D, Harsha B, Akshay
 Before you can use the system completely offline on the ship, you must run the setup script **one time** while connected to the internet. This will download the required AI models and install the necessary software.
 
 ### Windows Setup (Zero-Typing Instructions)
-1. Open the `E:\BEL\` folder.
+1. Open the BEL project folder.
 2. Double-click the file named **`First-Time-Setup.bat`**.
 3. A black terminal window will open and ask you to press any key to continue. Press any key.
 
@@ -151,7 +151,7 @@ Invoke-RestMethod -Uri "http://127.0.0.1:8000/reload" -Method Post
 ## Project Structure
 
 ```
-e:\BEL\
+BEL/
 ├── app\
 │   ├── main.py              ← FastAPI server
 │   ├── config.yaml          ← all tunables

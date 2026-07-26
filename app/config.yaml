@@ -17,13 +17,16 @@ model:
   # The 7b model is recommended for general-document queries (manuals,
   # guides) where longer context and prose synthesis matter.  The 3b
   # model is sufficient for the structured fault-code corpus.
-  ollama_tag: "qwen2.5:3b"
+  ollama_tag: "qwen2.5:7b"
   # Ollama listens on loopback ONLY (Section 12 — no remote inference)
   ollama_url: "http://127.0.0.1:11434"
   temperature: 0.1
   max_tokens: 512
   # Timeout for a single LLM call (seconds)
   timeout_seconds: 60
+
+  # Context window size sent to Ollama.
+  num_ctx: 8192
 
 embedding:
   # Offline-distributable model — weights pre-downloaded at setup
@@ -39,7 +42,7 @@ retrieval:
   # Cosine similarity threshold — drop candidates below this score
   confidence_threshold: 0.50
   # Number of chunks passed as context to the LLM
-  return_n: 3
+  return_n: 5
   # Regex pattern to trigger exact error-code direct lookup (bypasses embedding)
   error_code_pattern: "0x[0-9a-fA-F]{4}"
   # Score at or above this → deterministic template answer (fast path).
@@ -47,6 +50,23 @@ retrieval:
   # Exact code lookups always score 1.0 regardless of this value.
   # See scripts/verify_threshold_scores.py to validate against real embeddings.
   direct_answer_threshold: 0.80
+
+  # ── Hybrid Search (BM25 + Dense) ──────────────────────────────────────
+  # BM25 sparse retrieval is combined with dense (embedding) retrieval
+  # using Reciprocal Rank Fusion (RRF). This dramatically improves recall
+  # for keyword-heavy queries that dense embeddings alone may miss.
+  bm25_enabled: true
+  # RRF constant (k) — higher values give more weight to lower-ranked results.
+  # Standard value is 60; lower values (e.g. 20) make top results dominate more.
+  rrf_k: 60
+  # Number of candidates to fetch from EACH retriever before fusion.
+  # After fusion and deduplication, the top return_n results are kept.
+  retrieval_candidates: 50
+
+  # ── Cross-Encoder Reranker ─────────────────────────────────────────────
+  # Re-scores top candidates jointly with the query for exact attribute relevance.
+  reranker_enabled: false
+  reranker_model: "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
 paths:
   faiss_index: "data/index/faiss.index"

@@ -24,6 +24,7 @@ from app.settings import (
     MAX_MESSAGE_CHARS,
     MAX_TOKENS,
     MODEL_TAG,
+    NUM_CTX,
     OLLAMA_URL,
     TEMPERATURE,
     TIMEOUT,
@@ -48,14 +49,18 @@ INSUFFICIENT_MSG = (
 # ── System prompt (verbatim from PRD Section 13) ───────────────────────────
 _SYSTEM_PROMPT = """You are a technical assistant restricted to the provided context.
 Rules:
-- Answer only using the numbered context passages below.
+- Read ALL numbered context passages carefully before answering.
+- Answer ONLY using information from the numbered context passages below.
+- Synthesize information from MULTIPLE passages when relevant.
 - If the answer is not present in the context, respond exactly with:
   "This information is not available in the current documentation."
 - Cite every supported statement as [Document Name, Error Code] or
   [Document Name, page N] for documents without error codes.
 - Do not cite Previous Conversation. Cite ONLY from the numbered Context passages.
 - Do not use any knowledge beyond the provided context.
-- Be concise and precise. Do not speculate."""
+- Be concise and precise. Do not speculate.
+- When multiple context passages are relevant, combine their information
+  into a comprehensive answer rather than choosing only one."""
 
 
 def _build_context_block(retrieved_chunks: list) -> str:
@@ -102,12 +107,19 @@ def _citable_codes(retrieved_chunks: list) -> set:
 
 
 def _citable_documents(retrieved_chunks: list) -> set:
-    """Document names actually present in the retrieved context, lower-cased."""
+    """Document names and sanitized title keywords present in the retrieved context."""
     docs = set()
     for rc in retrieved_chunks:
-        doc = (rc.chunk.get("document_name") or "").strip().lower()
-        if doc:
-            docs.add(doc)
+        raw_doc = (rc.chunk.get("document_name") or "").strip().lower()
+        if raw_doc:
+            docs.add(raw_doc)
+            # Add sanitized version without leading digits or .pdf extension
+            clean = re.sub(r"^\d+[\-_]?", "", raw_doc)
+            clean = re.sub(r"\.pdf$", "", clean)
+            # Split on all non-alphanumeric characters (stripping apostrophes, hyphens)
+            clean_words = [w for w in re.split(r"[^\w]+", clean) if len(w) > 1]
+            for w in clean_words:
+                docs.add(w)
     return docs
 
 
@@ -127,7 +139,7 @@ def _has_citation(text: str, retrieved_chunks: list) -> bool:
     """
     spans = re.findall(r"\[([^\]]+)\]", text)
     if not spans:
-        return False
+        spans = [text]
 
     valid_codes = _citable_codes(retrieved_chunks)
 
@@ -139,7 +151,7 @@ def _has_citation(text: str, retrieved_chunks: list) -> bool:
                     return True
         return False
 
-    # General documents (no error codes): accept document name + page number
+    # General documents (no error codes): accept document name, page number, or source tag
     valid_docs = _citable_documents(retrieved_chunks)
     valid_pages = _citable_pages(retrieved_chunks)
     for span in spans:
@@ -148,11 +160,12 @@ def _has_citation(text: str, retrieved_chunks: list) -> bool:
         has_page = any(
             re.search(rf"\bpage\s*{re.escape(p)}\b", span_l)
             or re.search(rf"\bp\.?\s*{re.escape(p)}\b", span_l)
+            or re.search(rf"\b{re.escape(p)}\b", span_l)
             for p in valid_pages
         )
-        # Accept: document name present, or page number present, or both
         if has_doc or has_page:
             return True
+
     return False
 
 
@@ -198,6 +211,7 @@ def _call_ollama(prompt: str, system: str) -> tuple[str, float]:
         "options": {
             "temperature": TEMPERATURE,
             "num_predict": MAX_TOKENS,
+            "num_ctx": NUM_CTX,
         },
     }
     url = f"{OLLAMA_URL}/api/generate"

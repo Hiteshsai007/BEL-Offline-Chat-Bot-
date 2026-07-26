@@ -63,6 +63,8 @@ OLLAMA_URL: str = _get(CFG, "model", "ollama_url")
 TEMPERATURE: float = _get(CFG, "model", "temperature")
 MAX_TOKENS: int = _get(CFG, "model", "max_tokens")
 TIMEOUT: int = _get(CFG, "model", "timeout_seconds")
+NUM_CTX: int = CFG.get("model", {}).get("num_ctx", 2048)
+
 
 EMBED_MODEL: str = _get(CFG, "embedding", "model_name")
 EMBED_DEVICE: str = _get(CFG, "embedding", "device")
@@ -73,6 +75,12 @@ CONFIDENCE_THRESHOLD: float = _get(CFG, "retrieval", "confidence_threshold")
 RETURN_N: int = _get(CFG, "retrieval", "return_n")
 ERROR_CODE_PATTERN: str = _get(CFG, "retrieval", "error_code_pattern")
 DIRECT_ANSWER_THRESHOLD: float = _get(CFG, "retrieval", "direct_answer_threshold")
+BM25_ENABLED: bool = CFG.get("retrieval", {}).get("bm25_enabled", True)
+RRF_K: int = CFG.get("retrieval", {}).get("rrf_k", 60)
+RETRIEVAL_CANDIDATES: int = CFG.get("retrieval", {}).get("retrieval_candidates", 20)
+RERANKER_ENABLED: bool = CFG.get("retrieval", {}).get("reranker_enabled", True)
+RERANKER_MODEL: str = CFG.get("retrieval", {}).get("reranker_model", "BAAI/bge-reranker-base")
+
 
 # Paths are relative to the project root (one level up from app/)
 _ROOT = Path(__file__).parent.parent

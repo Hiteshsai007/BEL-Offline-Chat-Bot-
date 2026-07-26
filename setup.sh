@@ -44,12 +44,12 @@ if [ -z "$PYTHON" ]; then
             fi
         fi
         $SUDO apt-get update -yq
-        $SUDO apt-get install -yq python3 python3-venv curl zstd
+        $SUDO apt-get install -yq python3 python3-venv curl zstd lsof
         PYTHON="python3"
     elif command -v dnf &>/dev/null; then
         SUDO=""
         [ "$EUID" -ne 0 ] && command -v sudo &>/dev/null && SUDO="sudo"
-        $SUDO dnf install -yq python3 curl zstd
+        $SUDO dnf install -yq python3 curl zstd lsof
         PYTHON="python3"
     else
         echo "ERROR: Python 3.11+ is required. Package manager not recognized."
@@ -60,6 +60,27 @@ fi
 
 echo "Using Python: $PYTHON ($($PYTHON --version))"
 echo ""
+
+# --- Check memory and swap (recommended for 4 GB RAM machines) ---------------
+TOTAL_MEM_KB=$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}' || echo "0")
+TOTAL_SWAP_KB=$(grep SwapTotal /proc/meminfo 2>/dev/null | awk '{print $2}' || echo "0")
+TOTAL_MEM_MB=$((TOTAL_MEM_KB / 1024))
+TOTAL_SWAP_MB=$((TOTAL_SWAP_KB / 1024))
+
+if [ "$TOTAL_MEM_MB" -lt 6000 ] && [ "$TOTAL_SWAP_MB" -lt 2000 ]; then
+    echo ""
+    echo "WARNING: This system has ${TOTAL_MEM_MB} MB RAM and ${TOTAL_SWAP_MB} MB swap."
+    echo "For systems with less than 6 GB RAM, at least 2 GB of swap is recommended."
+    echo "To create a 2 GB swap file:"
+    echo "  sudo fallocate -l 2G /swapfile"
+    echo "  sudo chmod 600 /swapfile"
+    echo "  sudo mkswap /swapfile"
+    echo "  sudo swapon /swapfile"
+    echo "  echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab"
+    echo ""
+    echo "Continuing setup (press Ctrl+C to abort and add swap first)..."
+    sleep 5
+fi
 
 # --- Run the bootstrap -------------------------------------------------------
 exit_code=0

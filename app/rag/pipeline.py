@@ -202,8 +202,9 @@ def query(question: str, session_id: Optional[str] = None) -> QueryResponse:
 
     top_score = results[0].score
 
-    # ── FAST PATH: direct answer from structured data (no LLM) ────────────
-    if top_score >= DIRECT_ANSWER_THRESHOLD:
+    # ── FAST PATH: direct answer from structured fault code data (no LLM) ──
+    is_fault_code_match = results and bool(results[0].chunk.get("error_code"))
+    if top_score >= DIRECT_ANSWER_THRESHOLD and is_fault_code_match:
         answer = _format_direct_answer(results)
         citations = [
             f"{r.chunk.get('document_name', 'IRL Fault Codes')}, {r.chunk.get('error_code', 'N/A')}"
