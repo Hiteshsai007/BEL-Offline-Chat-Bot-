@@ -32,14 +32,22 @@ else
     
     # Wait for server to start
     echo -n "Waiting for server to become ready"
+    READY=0
     for i in {1..15}; do
+        # curl -s -f returns non-zero on 503, so the loop correctly
+        # keeps retrying during slow model loads or startup failures.
         if curl -s -f http://127.0.0.1:8000/health >/dev/null 2>&1; then
+            READY=1
             break
         fi
         echo -n "."
         sleep 1
     done
-    echo " Ready!"
+    if [ "$READY" -eq 1 ]; then
+        echo " Ready!"
+    else
+        echo " Timed out -- server may still be starting. Check logs/startup.log"
+    fi
 fi
 
 # Open browser
