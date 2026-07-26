@@ -176,6 +176,7 @@ async def health() -> JSONResponse:
         "index_exists": FAISS_INDEX_PATH.exists(),
         "ollama": "unknown",
         "model": MODEL_TAG,
+        "startup_ready": _startup_ready,
     }
     try:
         async with httpx.AsyncClient(timeout=5) as client:

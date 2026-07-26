@@ -36,3 +36,22 @@ def test_health_reflects_degraded_startup() -> None:
     assert response.status_code == 503
     data = response.json()
     assert data["ready"] is False
+
+
+def test_health_exposes_startup_ready_flag() -> None:
+    """
+    H-7: The /health response must include a ``startup_ready`` field so
+    the frontend can distinguish a startup failure (embedder/index didn't
+    load) from a runtime issue like Ollama being unreachable.
+    """
+    with patch(
+        "app.rag.retriever.get_retriever",
+        side_effect=FileNotFoundError("FAISS index missing"),
+    ):
+        degraded_client = TestClient(app)
+        response = degraded_client.get("/health")
+
+    data = response.json()
+    # When startup fails, startup_ready must be False
+    assert "startup_ready" in data
+    assert data["startup_ready"] is False
