@@ -1,7 +1,7 @@
 """
 RAG orchestration pipeline — the single entry point for all queries.
 
-Flow (PRD Section 5):
+Routing strategy (hybrid lookup + LLM):
   exact code match → semantic retrieval → confidence filter
   → [direct answer if high confidence OR LLM inference + guardrail]
   → structured response
@@ -9,11 +9,21 @@ Flow (PRD Section 5):
   If retrieval returns nothing → NOT_FOUND_MSG returned directly.
   The LLM is NEVER invoked on an empty retrieval result.
 
-Performance optimisation:
-  For a structured fault-code table, the retrieved chunk already IS the
-  answer.  When the top retrieval score ≥ DIRECT_ANSWER_THRESHOLD we
-  format a grounded response directly from the chunk metadata — no LLM
-  round-trip required.  This brings latency from ~30s to <500ms.
+Fast-path routing (deterministic):
+  When the top retrieval score ≥ DIRECT_ANSWER_THRESHOLD, the answer is
+  formatted directly from chunk metadata without invoking the LLM.
+  Exact code lookups always score 1.0 and therefore always take this
+  path.  For the shipped fault-code corpus, most semantic queries also
+  score above the threshold, making the fast path the dominant route.
+  This is intentional: for a structured fault-code reference table, a
+  deterministic metadata-derived answer is more auditable and reliable
+  than an LLM paraphrase.
+
+LLM path (generative):
+  Queries that retrieve chunks below DIRECT_ANSWER_THRESHOLD are sent to
+  the local LLM (Ollama) for synthesis with citation guardrails.  This
+  path handles genuinely ambiguous or fuzzy phrasing where the retrieval
+  confidence is too low for a direct template answer.
 """
 import re
 import time
