@@ -23,7 +23,8 @@ model:
   temperature: 0.1
   max_tokens: 512
   # Timeout for a single LLM call (seconds)
-  timeout_seconds: 60
+  # 7b model needs 30-60s on CPU; 120s gives headroom for guardrail retries.
+  timeout_seconds: 120
 
   # Context window size sent to Ollama.
   num_ctx: 8192

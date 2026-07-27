@@ -107,19 +107,12 @@ def _citable_codes(retrieved_chunks: list) -> set:
 
 
 def _citable_documents(retrieved_chunks: list) -> set:
-    """Document names and sanitized title keywords present in the retrieved context."""
+    """Document names actually present in the retrieved context, lower-cased."""
     docs = set()
     for rc in retrieved_chunks:
-        raw_doc = (rc.chunk.get("document_name") or "").strip().lower()
-        if raw_doc:
-            docs.add(raw_doc)
-            # Add sanitized version without leading digits or .pdf extension
-            clean = re.sub(r"^\d+[\-_]?", "", raw_doc)
-            clean = re.sub(r"\.pdf$", "", clean)
-            # Split on all non-alphanumeric characters (stripping apostrophes, hyphens)
-            clean_words = [w for w in re.split(r"[^\w]+", clean) if len(w) > 1]
-            for w in clean_words:
-                docs.add(w)
+        doc = (rc.chunk.get("document_name") or "").strip().lower()
+        if doc:
+            docs.add(doc)
     return docs
 
 

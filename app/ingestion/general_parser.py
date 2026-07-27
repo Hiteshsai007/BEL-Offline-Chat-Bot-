@@ -292,21 +292,21 @@ def parse_general_pdf(
     source_hash = sha256_file(path)
     log.info("Source SHA-256: %s", source_hash)
 
-    # -- Primary extraction via PyMuPDF for clean word spacing --
+    # -- Primary extraction via pdfplumber (detects tables) --
     items: list[dict[str, Any]] = []
     try:
-        items = _extract_with_pymupdf(path)
-        log.info("PyMuPDF extracted %d content items", len(items))
+        items = _extract_with_pdfplumber(path)
+        log.info("pdfplumber extracted %d content items", len(items))
     except Exception as e:
-        log.warning("PyMuPDF failed (%s) -- trying pdfplumber fallback", e)
+        log.warning("pdfplumber failed (%s) -- trying PyMuPDF fallback", e)
 
-    # Fallback if PyMuPDF returned nothing
+    # Fallback if pdfplumber returned nothing
     if not items:
         try:
-            items = _extract_with_pdfplumber(path)
-            log.info("pdfplumber fallback extracted %d items", len(items))
+            items = _extract_with_pymupdf(path)
+            log.info("PyMuPDF fallback extracted %d items", len(items))
         except Exception as e:
-            log.error("pdfplumber also failed: %s", e)
+            log.error("PyMuPDF also failed: %s", e)
 
     if not items:
         raise RuntimeError(
