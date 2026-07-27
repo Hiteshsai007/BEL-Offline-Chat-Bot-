@@ -53,7 +53,10 @@ def test_venv_check_mocked(monkeypatch):
 def test_read_config_tag():
     """Ensure we parse the config file correctly without pyyaml."""
     tag = bootstrap._read_config_tag()
-    assert tag == "qwen2.5:3b"
+    assert isinstance(tag, str)
+    assert len(tag) > 0
+    # Should match whatever is in config.yaml
+    assert tag == "qwen2.5:7b"
 
 
 def test_read_config_embed():

@@ -15,6 +15,11 @@ data/models/
 data/*.db
 chunks.tmp.jsonl
 faiss.tmp
+*.pkl
+scratch/
+
+# Generated general-ingestion artifacts (images are large, rebuild from PDF)
+data/index/general/images/
 
 # IDEs
 .vscode/
@@ -27,5 +32,5 @@ Thumbs.db
 # Static review artifact (not part of the build)
 CODE_REVIEW.md
 
-
-
+# Temporary analysis files
+tmp/
