@@ -11,8 +11,8 @@ from typing import Any
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
-from app.logger import get_logger
-from app.settings import EMBED_DEVICE, RERANKER_ENABLED, RERANKER_MODEL
+from app.logger import get_logger  # noqa: E402
+from app.settings import EMBED_DEVICE, RERANKER_MODEL  # noqa: E402
 
 log = get_logger(__name__)
 
@@ -49,13 +49,18 @@ class Reranker:
 
         try:
             scores = self._model.predict(pairs, show_progress_bar=False)
-            
+
             # Update scores on RetrievedChunk items and sort
             for c, s in zip(candidate_chunks, scores):
                 c.score = float(s)
 
             candidate_chunks.sort(key=lambda r: r.score, reverse=True)
-            log.info("Reranked %d candidates with CrossEncoder (top score: %.4f)", len(candidate_chunks), candidate_chunks[0].score if candidate_chunks else 0.0)
+            top_score = candidate_chunks[0].score if candidate_chunks else 0.0
+            log.info(
+                "Reranked %d candidates with CrossEncoder (top score: %.4f)",
+                len(candidate_chunks),
+                top_score,
+            )
             return candidate_chunks
         except Exception as e:
             log.warning("Reranking prediction failed: %s -- returning original candidate ordering.", e)

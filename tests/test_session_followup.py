@@ -317,5 +317,3 @@ def test_conversational_shortcut_e2e_sequence_b(session_id):
     res3 = query("What is the remedy?", session_id=session_id)
     assert res3.found is True
     assert "The available documentation does not provide corrective steps for error 0x0003." in res3.answer
-
-

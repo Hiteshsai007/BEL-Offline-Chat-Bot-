@@ -248,7 +248,8 @@ def _resolve_history_context(
         while i < len(history):
             if history[i].get("role") == "user":
                 u = history[i].get("content", "")
-                a = history[i + 1].get("content", "") if (i + 1 < len(history) and history[i + 1].get("role") == "assistant") else ""
+                has_next = i + 1 < len(history) and history[i + 1].get("role") == "assistant"
+                a = history[i + 1].get("content", "") if has_next else ""
                 turns.append((u, a))
                 i += 2
             else:
