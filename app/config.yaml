@@ -17,7 +17,7 @@ model:
   # The 7b model is recommended for general-document queries (manuals,
   # guides) where longer context and prose synthesis matter.  The 3b
   # model is sufficient for the structured fault-code corpus.
-  ollama_tag: "qwen2.5:7b"
+  ollama_tag: "qwen2.5:3b"
   # Ollama listens on loopback ONLY (Section 12 — no remote inference)
   ollama_url: "http://127.0.0.1:11434"
   temperature: 0.1
