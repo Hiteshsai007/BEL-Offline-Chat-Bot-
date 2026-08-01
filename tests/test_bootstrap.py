@@ -56,7 +56,7 @@ def test_read_config_tag():
     assert isinstance(tag, str)
     assert len(tag) > 0
     # Should match whatever is in config.yaml
-    assert tag == "qwen2.5:7b"
+    assert tag == "qwen2.5:3b"
 
 
 def test_read_config_embed():
