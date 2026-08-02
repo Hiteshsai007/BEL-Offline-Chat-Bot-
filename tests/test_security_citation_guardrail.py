@@ -235,3 +235,37 @@ def test_build_context_block_includes_page_for_general_doc() -> None:
     block = _build_context_block(GENERAL_CONTEXT)
     assert "page 170" in block
     assert "Error Code: N/A" not in block
+
+
+def test_accepts_document_bracket_with_page_outside_for_general_doc() -> None:
+    """Document [1], page 54 format must validate."""
+    gen_ctx = [_general_chunk("Ninja-Zx-10r-Se-2018-Owners-Manual.pdf", 54)]
+    answer = (
+        "The blinking pattern of the warning indicator is described in "
+        "Document [1], page 54."
+    )
+    assert _has_citation(answer, gen_ctx) is True
+
+
+def test_accepts_bracketed_page_format_for_general_doc() -> None:
+    """[page 54] format must validate."""
+    gen_ctx = [_general_chunk("Ninja-Zx-10r-Se-2018-Owners-Manual.pdf", 54)]
+    answer = "The blinking pattern is shown on [page 54]."
+    assert _has_citation(answer, gen_ctx) is True
+
+
+def test_accepts_bracketed_doc_and_page_format_for_general_doc() -> None:
+    """[Document Name, page 54] format must validate."""
+    gen_ctx = [_general_chunk("Ninja-Zx-10r-Se-2018-Owners-Manual.pdf", 54)]
+    answer = (
+        "The blinking pattern is shown in "
+        "[Ninja-Zx-10r-Se-2018-Owners-Manual.pdf, page 54]."
+    )
+    assert _has_citation(answer, gen_ctx) is True
+
+
+def test_rejects_document_bracket_without_valid_page_or_doc() -> None:
+    """Document [1] without page number or document name must fail."""
+    gen_ctx = [_general_chunk("Ninja-Zx-10r-Se-2018-Owners-Manual.pdf", 54)]
+    answer = "The blinking pattern is described in Document [1]."
+    assert _has_citation(answer, gen_ctx) is False
