@@ -449,7 +449,8 @@ def generate(question: str, retrieved_chunks: list, history: list | None = None)
     ungrounded_terms = _extract_ungrounded_terms(answer, retrieved_chunks, history) if is_fault_code_context else []
     is_grounded = len(ungrounded_terms) == 0
 
-    # For general document context (no error codes): if response is well-grounded but missing explicit brackets, attach source citation
+    # For general document context (no error codes): if response is well-grounded
+    # but missing explicit brackets, attach source citation
     if (
         not is_fault_code_context
         and not has_citation
