@@ -53,6 +53,10 @@ def _make_chunk_record(
     section_heading: str | None = None,
     image_file_path: str | None = None,
     figure_references: list[str] | None = None,
+    image_id: str | None = None,
+    image_caption: str | None = None,
+    nearby_text_context: str | None = None,
+    ocr_text: str | None = None,
 ) -> dict[str, Any]:
     """
     Build a single chunk dict.
@@ -84,6 +88,10 @@ def _make_chunk_record(
         "section_heading": section_heading,
         "image_file_path": image_file_path,
         "figure_references": figure_references or [],
+        "image_id": image_id,
+        "image_caption": image_caption,
+        "ocr_text": ocr_text,
+        "nearby_text_context": nearby_text_context,
     }
 
 
@@ -208,28 +216,40 @@ def _chunk_image_item(
     """
     Create a metadata chunk for an extracted image.
 
-    The chunk text contains the caption (if any) and a reference to the
-    image file path.  Only the caption text is embedded -- the image
-    bytes are never part of the FAISS vector.
+    The chunk text contains the image ID, caption, nearby text context, and file path.
+    Only text/metadata is embedded -- raw image bytes are never part of FAISS vectors.
     """
-    caption = item.get("caption")
+    caption = item.get("image_caption") or item.get("caption")
     page = item.get("page_number")
-    img_path = item.get("image_file_path", "")
+    img_path = item.get("image_file_path") or item.get("image_path") or ""
+    img_id = item.get("image_id") or f"page_{page}_img"
+    nearby = item.get("nearby_text_context")
+    ocr_text = item.get("ocr_text")
 
-    # If there is no caption at all, skip -- an image with no text
-    # produces nothing meaningful to embed.
-    if not caption and not img_path:
-        return None
-
-    parts = []
+    parts = [
+        f"[Image: {img_id}] Diagram / Figure / Chart / Image on Page {page}"
+    ]
+    if ocr_text:
+        parts.append(f"OCR Text: {ocr_text}")
     if caption:
-        parts.append(caption)
-    parts.append(f"[Image: {img_path}]")
+        parts.append(f"Caption / Description: {caption}")
+    if nearby:
+        parts.append(f"Nearby Context: {nearby}")
+    if img_path:
+        parts.append(f"Source image file: {img_path}")
     chunk_text = "\n".join(parts)
 
     return _make_chunk_record(
-        chunk_text, document_name, source_hash, page, "image",
+        chunk_text,
+        document_name,
+        source_hash,
+        page,
+        "image",
         image_file_path=img_path,
+        image_id=img_id,
+        image_caption=caption,
+        nearby_text_context=nearby,
+        ocr_text=ocr_text,
     )
 
 

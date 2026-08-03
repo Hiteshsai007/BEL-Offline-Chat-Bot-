@@ -38,7 +38,7 @@ from app.rag.generator import (
 )
 from app.rag.retriever import RetrievedChunk, get_retriever
 from app.session import get_session_store
-from app.settings import DIRECT_ANSWER_THRESHOLD, MAX_HISTORY_TURNS
+from app.settings import CONFIDENCE_THRESHOLD, DIRECT_ANSWER_THRESHOLD, MAX_HISTORY_TURNS
 
 log = get_logger(__name__)
 
@@ -134,11 +134,31 @@ class QueryResponse:
     error: Optional[str] = None
 
 
-def _format_direct_answer(results: list[RetrievedChunk]) -> str:
+def _format_direct_answer(results: list[RetrievedChunk], question: str = "") -> str:
     """
     Build a human-readable answer directly from retrieved chunks.
     Every statement is traceable to the source document — zero hallucination.
     """
+    fault_chunks = [r.chunk for r in results if r.chunk.get("error_code")]
+
+    # Check if this is a fault description query (e.g. asking "what is misfire", etc.,
+    # without an exact single code match in query)
+    if fault_chunks and len(fault_chunks) > 1 and not _ERROR_CODE_REGEX.search(question):
+        codes = [c["error_code"] for c in fault_chunks if c.get("error_code")]
+        remarks = [c.get("error_remarks") for c in fault_chunks if c.get("error_remarks")]
+        unique_remarks = list(dict.fromkeys(r for r in remarks if r))
+        doc = fault_chunks[0].get("document_name", "IRL Fault Codes.pdf")
+
+        if unique_remarks and codes:
+            rem_str = "; ".join(unique_remarks)
+            code_str = ", ".join(codes)
+            first_code = codes[0]
+            return (
+                f"In this system, this condition indicates: {rem_str}. "
+                f"This condition appears in multiple fault codes ({code_str}).\n"
+                f"  [Source: {doc}, {first_code}]"
+            )
+
     lines = []
     for rc in results:
         c = rc.chunk
@@ -420,6 +440,23 @@ def query(question: str, session_id: Optional[str] = None) -> QueryResponse:
             latency_ms=elapsed,
         )
 
+    if results and results[0].chunk.get("chunk_type") == "no_image_sentinel":
+        target_page = results[0].chunk.get("page_number", "")
+        elapsed = int((time.perf_counter() - t_start) * 1000)
+        return QueryResponse(
+            answer=f"No image or diagram was found on page {target_page}.",
+            found=False,
+            latency_ms=elapsed,
+        )
+
+    if results and results[0].chunk.get("chunk_type") == "no_ocr_text_sentinel":
+        elapsed = int((time.perf_counter() - t_start) * 1000)
+        return QueryResponse(
+            answer="No readable text was detected in the image.",
+            found=False,
+            latency_ms=elapsed,
+        )
+
     top_score = results[0].score
     is_fault_code_match = results and bool(results[0].chunk.get("error_code"))
 
@@ -429,18 +466,26 @@ def query(question: str, session_id: Optional[str] = None) -> QueryResponse:
             selected_path = "Follow-up Fast Path"
             code_ref = resolved_code or results[0].chunk.get("error_code") or ""
             if _has_remediation(results):
-                answer = _format_direct_answer(results)
+                answer = _format_direct_answer(results, search_query)
             else:
                 answer = _format_missing_remediation_answer(results, code_ref)
         else:
             selected_path = "Fast Path"
-            answer = _format_direct_answer(results)
+            answer = _format_direct_answer(results, search_query)
 
         citations = [
             f"{r.chunk.get('document_name', 'IRL Fault Codes')}, {r.chunk.get('error_code', 'N/A')}"
             for r in results
         ]
         elapsed = int((time.perf_counter() - t_start) * 1000)
+
+        retrieved_doc_names = list({r.chunk.get("document_name", "Unknown") for r in results})
+        sel_index = getattr(retriever, "last_selected_index", "fault_code")
+        log.info(
+            "RETRIEVAL DEBUGGING | query='%s' | selected_index=%s | top_score=%.4f | "
+            "retrieved_document_names=%s | answer_generation_path=%s | citation_guardrail_result=N/A (Fast Path)",
+            question[:60], sel_index, top_score, retrieved_doc_names, selected_path,
+        )
 
         log.info(
             "SESSION DIAGNOSTICS | session_id=%s | history_length=%d | "
@@ -465,6 +510,22 @@ def query(question: str, session_id: Optional[str] = None) -> QueryResponse:
             top_score=top_score,
             latency_ms=elapsed,
             found=True,
+            guardrail_triggered=False,
+        )
+
+    # Low-confidence retrieval check: do not send irrelevant context to Ollama
+    if top_score < CONFIDENCE_THRESHOLD:
+        elapsed = int((time.perf_counter() - t_start) * 1000)
+        log.warning(
+            "Low retrieval confidence (top_score=%.4f < threshold=%.2f) — returning safe fallback.",
+            top_score, CONFIDENCE_THRESHOLD,
+        )
+        return QueryResponse(
+            answer=NOT_FOUND_MSG,
+            found=False,
+            retrieved_chunks=[{**r.chunk, "score": r.score} for r in results],
+            top_score=top_score,
+            latency_ms=elapsed,
             guardrail_triggered=False,
         )
 
@@ -497,6 +558,17 @@ def query(question: str, session_id: Optional[str] = None) -> QueryResponse:
     answer = gen_result["answer"]
     prompt_ms = gen_result.get("prompt_construction_ms", 0.0)
     ollama_ms = gen_result.get("ollama_inference_ms", 0.0)
+
+    retrieved_doc_names = list({r.chunk.get("document_name", "Unknown") for r in results})
+    sel_index = getattr(retriever, "last_selected_index", "fault_code")
+    g_triggered = gen_result.get("guardrail_triggered", False)
+    g_result = "PASSED" if not g_triggered else ("REGENERATED" if gen_result.get("citations") else "FAILED_FALLBACK")
+
+    log.info(
+        "RETRIEVAL DEBUGGING | query='%s' | selected_index=%s | top_score=%.4f | "
+        "retrieved_document_names=%s | answer_generation_path=%s | citation_guardrail_result=%s",
+        question[:60], sel_index, top_score, retrieved_doc_names, selected_path, g_result,
+    )
 
     log.info(
         "LLM PATH TIMING BREAKDOWN | Total: %dms | History: %.2fms | "

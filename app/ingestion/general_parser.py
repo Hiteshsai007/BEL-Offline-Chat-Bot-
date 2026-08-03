@@ -116,7 +116,7 @@ def _extract_with_pdfplumber(
                 })
 
             # -- Prose text --
-            text = page.extract_text() or ""
+            text = page.extract_text(x_tolerance=1) or ""
             if text.strip():
                 # Track section headings
                 for line in text.splitlines():
@@ -221,13 +221,22 @@ def _extract_images(
 
                 # Try to find nearby caption text on the same page
                 caption = _find_nearby_caption(page, img_info)
+                page_text = page.get_text("text") or ""
 
-                images.append({
+                from app.ingestion.image_captioner import generate_image_caption_and_metadata
+
+                raw_item = {
                     "type": "image",
+                    "image_id": f"page_{page_num}_img_{img_idx}",
                     "page_number": page_num,
+                    "document": path.name,
                     "image_file_path": str(img_path),
                     "caption": caption,
-                })
+                }
+                meta = generate_image_caption_and_metadata(raw_item, page_text)
+                raw_item.update(meta)
+
+                images.append(raw_item)
                 log.info(
                     "Extracted image: page %d, idx %d -> %s",
                     page_num, img_idx, img_path,
@@ -238,6 +247,14 @@ def _extract_images(
             "Skipped %d icon-sized images (<%dpx on both axes)",
             skipped_count, _MIN_IMAGE_DIM,
         )
+
+    if images:
+        try:
+            from app.ingestion.image_captioner import save_image_metadata_store
+            store_path = output_dir.parent / "image_metadata.jsonl"
+            save_image_metadata_store(images, store_path)
+        except Exception as e:
+            log.warning("Could not save image_metadata.jsonl: %s", e)
 
     return images
 

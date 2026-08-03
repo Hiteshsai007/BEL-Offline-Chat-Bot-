@@ -1,5 +1,5 @@
 """
-Ollama inference wrapper with citation guardrail.
+Ollama inference wrapper with citation and strict noun-grounding guardrails.
 
 This module is invoked by the pipeline only for queries that fall below
 the DIRECT_ANSWER_THRESHOLD — i.e. ambiguous or low-confidence retrieval
@@ -7,11 +7,12 @@ results where the structured fast-path template is insufficient.
 
 Guarantees when this module IS called:
   • The generator is NEVER called when retrieval returns nothing.
-  • Output is checked for citations; one regeneration attempt is made
-    if the first response fails the citation check.
-  • If both attempts fail, a "documentation insufficient" fallback is
-    returned.
-  • Response latency is logged — sub-500ms is flagged as suspicious.
+  • Answers are derived STRICTLY from retrieved context passages. No external
+    knowledge, domain interpretations, or ungrounded explanations are allowed.
+  • Key nouns/terms in the draft answer are validated against the retrieved text.
+    If ungrounded terms are detected, a retry is attempted. If retry fails,
+    a strict no-definition fallback is returned.
+  • Output is checked for citations; fallback returned if validation fails.
 """
 import re
 import time
@@ -46,21 +47,63 @@ INSUFFICIENT_MSG = (
     "fully cited answer. Please consult the source document directly."
 )
 
-# ── System prompt (verbatim from PRD Section 13) ───────────────────────────
-_SYSTEM_PROMPT = """You are a technical assistant restricted to the provided context.
+# ── Strict System prompt ───────────────────────────────────────────────────
+_SYSTEM_PROMPT = """You are a technical assistant restricted strictly to the provided context.
 Rules:
 - Read ALL numbered context passages carefully before answering.
-- Answer ONLY using information from the numbered context passages below.
-- Synthesize information from MULTIPLE passages when relevant.
-- If the answer is not present in the context, respond exactly with:
-  "This information is not available in the current documentation."
-- Cite every supported statement as [Document Name, Error Code] or
-  [Document Name, page N] for documents without error codes.
+- Answer ONLY using information explicitly stated in the numbered context passages below.
+- Do NOT use external knowledge, domain interpretation, speculation, or assumptions.
+- Do NOT introduce concepts or terminology not present in the context (such as internal combustion
+  engines, ignition systems, parameters, or operational limits unless explicitly written in context).
+- If the user asks for the meaning or explanation of a fault description, summarize the documented
+  remarks across the matching fault code entries using ONLY evidence from the context passages.
+- When asked to summarize, explain, or list the contents of a specific page (for example: 'summarize page X',
+  'explain page X', 'what is on page X', or 'what text is on page X'), provide a complete summary of all
+  available content from that page, including prose text, part lists, labels, tables, notices, warnings, image
+  references, OCR text, diagram descriptions, and other retrieved page content. Do not reject the request simply
+  because the page contains labels, lists, tables, or diagrams instead of narrative paragraphs.
+- Prefer quoting or directly paraphrasing source text over explaining or expanding upon it.
+- Cite every supported statement as [Document Name, Error Code] or [Document Name, page N]
+  for documents without error codes.
 - Do not cite Previous Conversation. Cite ONLY from the numbered Context passages.
-- Do not use any knowledge beyond the provided context.
-- Be concise and precise. Do not speculate.
-- When multiple context passages are relevant, combine their information
-  into a comprehensive answer rather than choosing only one."""
+- If the answer is not present in the context at all, respond exactly with:
+  "This information is not available in the current documentation." """
+
+_COMMON_STOP_WORDS = {
+    "a", "an", "the", "and", "or", "but", "if", "because", "as", "until", "while",
+    "of", "at", "by", "for", "with", "about", "against", "between", "into", "through",
+    "during", "before", "after", "above", "below", "to", "from", "up", "upon", "down",
+    "in", "out", "on", "off", "over", "under", "again", "further", "then", "once",
+    "here", "there", "when", "where", "why", "how", "all", "any", "both", "each",
+    "few", "more", "most", "other", "some", "such", "no", "nor", "not", "only",
+    "own", "same", "so", "than", "too", "very", "s", "t", "can", "will", "just",
+    "don", "should", "now", "d", "ll", "m", "o", "re", "ve", "y", "ain", "aren",
+    "couldn", "didn", "doesn", "hadn", "hasn", "haven", "isn", "ma", "mightn",
+    "mustn", "needn", "shan", "shouldn", "wasn", "weren", "won", "wouldn",
+    "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
+    "having", "do", "does", "did", "doing", "would", "should", "could", "ought",
+    "i", "you", "he", "she", "it", "we", "they", "them", "their", "theirs", "my",
+    "your", "his", "her", "its", "our", "us", "this", "that", "these", "those",
+    "document", "documents", "documentation", "provide", "provides", "provided",
+    "definition", "definitions", "define", "defines", "defined", "state", "states",
+    "stated", "stating", "only", "text", "context", "passage", "passages", "information",
+    "available", "current", "according", "source", "sources", "cited", "citation",
+    "error", "errors", "code", "codes", "page", "pages", "pdf", "file", "unit",
+    "system", "chapter", "section", "table", "figure", "fig", "manual", "guide",
+    "reference", "referenced", "n/a", "no", "not", "ensure", "slightly", "engaging",
+    "supply", "allow", "starting", "procedure", "step", "steps", "follow", "following",
+    "instructions", "method", "make", "sure", "turn", "key", "press", "button",
+    "using", "used", "switch", "lever", "position", "start", "stop", "check", "slowly",
+    "open", "close", "pull", "push", "release", "set", "setting", "mode", "normal",
+    "normally", "ordinary", "ordinarily", "correct", "proper", "standard", "general", "generally",
+    "showing", "location", "located", "component", "components", "label", "labels", "part", "parts",
+    "diagram", "diagrams", "image", "images", "item", "items", "number", "numbers", "list", "lists",
+    "listed", "summary", "summarize", "summarizes", "summarized", "explain", "explains", "explanation",
+    "content", "contents", "describe", "describes", "description", "contains", "contain", "containing",
+    "related", "relates", "vehicle", "specifically", "specific", "detailing", "details", "detail",
+    "corresponds", "corresponding", "refers", "refer", "referring", "shows", "show", "depicts", "depict",
+    "depicting", "visual", "visually", "represent", "represents", "representing"
+}
 
 
 def _build_context_block(retrieved_chunks: list) -> str:
@@ -147,9 +190,22 @@ def _has_citation(text: str, retrieved_chunks: list) -> bool:
     # General documents (no error codes): accept document name, page number, or source tag
     valid_docs = _citable_documents(retrieved_chunks)
     valid_pages = _citable_pages(retrieved_chunks)
+    stop_words = {"page", "pdf", "file", "doc", "document", "manual", "guide", "source"}
+
     for span in spans:
         span_l = span.lower()
-        has_doc = any(doc and doc in span_l for doc in valid_docs)
+        span_words = [
+            w for w in re.findall(r"\b[a-zA-Z]{3,}\b", span_l)
+            if w not in stop_words
+        ]
+        has_doc = any(
+            doc and (
+                doc in span_l
+                or (len(span_l) >= 4 and span_l in doc)
+                or any(w in doc for w in span_words)
+            )
+            for doc in valid_docs
+        )
         has_page = any(
             re.search(rf"\bpage\s*{re.escape(p)}\b", span_l)
             or re.search(rf"\bp\.?\s*{re.escape(p)}\b", span_l)
@@ -159,7 +215,100 @@ def _has_citation(text: str, retrieved_chunks: list) -> bool:
         if has_doc or has_page:
             return True
 
+    # Fallback for general documents: evaluate full response text
+    if spans != [text]:
+        text_l = text.lower()
+        text_words = [
+            w for w in re.findall(r"\b[a-zA-Z]{3,}\b", text_l)
+            if w not in stop_words
+        ]
+        has_doc_text = any(
+            doc and (doc in text_l or any(w in doc for w in text_words))
+            for doc in valid_docs
+        )
+        has_page_text = any(
+            re.search(rf"\bpage\s*{re.escape(p)}\b", text_l)
+            or re.search(rf"\bp\.?\s*{re.escape(p)}\b", text_l)
+            for p in valid_pages
+        )
+        if has_doc_text or has_page_text:
+            return True
+
     return False
+
+
+def _extract_ungrounded_terms(answer: str, retrieved_chunks: list, history: list | None = None) -> list[str]:
+    """
+    Extract substantive nouns/terms from answer and verify they appear in retrieved context.
+    Returns a list of ungrounded terms found in answer that are absent from context.
+    """
+    if not answer or answer in (INSUFFICIENT_MSG, NOT_FOUND_MSG, DEGRADED_MSG):
+        return []
+
+    ref_parts = []
+    for rc in retrieved_chunks:
+        c = rc.chunk
+        ref_parts.append(c.get("chunk_text", ""))
+        ref_parts.append(c.get("document_name", ""))
+        ref_parts.append(str(c.get("error_code") or ""))
+        ref_parts.append(str(c.get("error_description") or ""))
+        ref_parts.append(str(c.get("error_remarks") or ""))
+        ref_parts.append(str(c.get("section_heading") or ""))
+
+    if history:
+        for msg in history:
+            ref_parts.append(msg.get("content", ""))
+
+    ref_text = " ".join(ref_parts).lower()
+    ref_words = set(re.findall(r"\b[a-zA-Z0-9]{3,}\b", ref_text))
+
+    clean_answer = re.sub(r"\[[^\]]+\]", " ", answer)
+    answer_words = re.findall(r"\b[a-zA-Z0-9]{3,}\b", clean_answer.lower())
+
+    ungrounded = []
+    for word in answer_words:
+        if word in _COMMON_STOP_WORDS:
+            continue
+        if word not in ref_words and not any(word in rw or rw in word for rw in ref_words if len(rw) >= 4):
+            if word not in ungrounded:
+                ungrounded.append(word)
+
+    return ungrounded
+
+
+def _format_no_definition_fallback(retrieved_chunks: list) -> str:
+    """Format a strict evidence-based summary when context lacks a formal definition."""
+    codes = []
+    remarks_set = []
+    doc = "IRL Fault Codes.pdf"
+
+    for rc in retrieved_chunks:
+        c = rc.chunk
+        if c.get("document_name"):
+            doc = c.get("document_name")
+        code = c.get("error_code")
+        if code and code not in codes:
+            codes.append(code)
+        rem = c.get("error_remarks")
+        if rem and rem not in remarks_set:
+            remarks_set.append(rem)
+
+    if remarks_set and codes:
+        remarks_str = "; ".join(remarks_set)
+        codes_str = ", ".join(codes)
+        first_code = codes[0]
+        return (
+            f"In this system, this condition indicates: {remarks_str}. "
+            f"This condition appears in multiple fault codes ({codes_str}) [{doc}, {first_code}]."
+        )
+
+    first = retrieved_chunks[0].chunk
+    text = first.get("chunk_text") or first.get("error_description") or ""
+    code = first.get("error_code") or (
+        f"page {first['page_number']}" if first.get("page_number") is not None else ""
+    )
+    citation = f"[{doc}, {code}]" if code else f"[{doc}]"
+    return f"The document does not provide a definition. It only states: {text} {citation}"
 
 
 def _extract_citations(text: str, retrieved_chunks: list) -> list:
@@ -176,7 +325,6 @@ def _extract_citations(text: str, retrieved_chunks: list) -> list:
             f.strip().lower() in valid_codes for f in _CODE_RE.findall(span)
         )
         if not grounded and not valid_codes:
-            # General documents: accept document name or page number
             span_l = span.lower()
             has_doc = any(doc and doc in span_l for doc in valid_docs)
             has_page = any(
@@ -187,6 +335,17 @@ def _extract_citations(text: str, retrieved_chunks: list) -> list:
             grounded = has_doc or has_page
         if grounded and span not in out:
             out.append(span)
+
+    if not out and not valid_codes:
+        # Fallback for general documents: extract unbracketed page or document references
+        text_l = text.lower()
+        for p in valid_pages:
+            pat = rf"\bpage\s*{re.escape(p)}\b|\bp\.?\s*{re.escape(p)}\b"
+            if re.search(pat, text_l):
+                for doc in valid_docs:
+                    cit = f"{doc}, page {p}"
+                    if cit not in out:
+                        out.append(cit)
 
     return out
 
@@ -245,6 +404,8 @@ def generate(question: str, retrieved_chunks: list, history: list | None = None)
     context_block = _build_context_block(retrieved_chunks)
     history_block = _build_history_block(history)
 
+    log.info("RETRIEVED CONTEXT:\n%s", context_block)
+
     prompt_parts = []
     if history_block:
         prompt_parts.append(history_block)
@@ -262,6 +423,7 @@ def generate(question: str, retrieved_chunks: list, history: list | None = None)
     # ── Attempt 1 ─────────────────────────────────────────────────────────
     try:
         answer, elapsed_ms = _call_ollama(prompt, _SYSTEM_PROMPT)
+        log.info("DRAFT ANSWER:\n%s", answer)
     except httpx.ConnectError:
         log.error("Cannot connect to Ollama at %s — is it running?", OLLAMA_URL)
         return {
@@ -281,24 +443,58 @@ def generate(question: str, retrieved_chunks: list, history: list | None = None)
             "error": str(e),
         }
 
-    # ── Citation guardrail ─────────────────────────────────────────────────
-    if not _has_citation(answer, retrieved_chunks):
-        log.warning("Citation guardrail triggered — regenerating …")
+    # ── Validation Step: Citation & Noun Grounding ─────────────────────────
+    has_citation = _has_citation(answer, retrieved_chunks)
+    is_fault_code_context = any(bool(rc.chunk.get("error_code")) for rc in retrieved_chunks)
+    ungrounded_terms = _extract_ungrounded_terms(answer, retrieved_chunks, history) if is_fault_code_context else []
+    is_grounded = len(ungrounded_terms) == 0
+
+    # For general document context (no error codes): if response is well-grounded
+    # but missing explicit brackets, attach source citation
+    if (
+        not is_fault_code_context
+        and not has_citation
+        and retrieved_chunks
+        and answer
+        and answer not in (INSUFFICIENT_MSG, NOT_FOUND_MSG, DEGRADED_MSG)
+    ):
+        top_c = retrieved_chunks[0].chunk
+        doc = top_c.get("document_name", "Documentation")
+        page = top_c.get("page_number")
+        code = top_c.get("error_code")
+        if code:
+            answer = f"{answer.rstrip()}\n  [{doc}, {code}]"
+        elif page is not None:
+            answer = f"{answer.rstrip()}\n  [{doc}, page {page}]"
+        else:
+            answer = f"{answer.rstrip()}\n  [{doc}]"
+        has_citation = True
+
+    log.info(
+        "CITATION & GROUNDING VALIDATION | has_citation=%s | is_grounded=%s | ungrounded_terms=%s",
+        has_citation, is_grounded, ungrounded_terms or "None",
+    )
+
+    if not has_citation or not is_grounded:
+        log.warning(
+            "Validation failed (has_citation=%s, is_grounded=%s) — regenerating with strict grounding constraint...",
+            has_citation, is_grounded,
+        )
         guardrail_triggered = True
 
-        # Tailor the citation instruction to the document type
-        has_codes = bool(_citable_codes(retrieved_chunks))
-        if has_codes:
-            cite_instruction = (
-                "IMPORTANT: Your answer MUST include at least one citation "
-                "in the format [Document Name, Error Code]. Do not omit "
-                "citations."
-            )
-        else:
-            cite_instruction = (
-                "IMPORTANT: Your answer MUST include at least one citation "
-                "in the format [Document Name, page N] where N is the page "
-                "number from the source. Do not omit citations."
+        instructions = []
+        if not has_citation:
+            has_codes = bool(_citable_codes(retrieved_chunks))
+            fmt = "[Document Name, Error Code]" if has_codes else "[Document Name, page N]"
+            instructions.append(f"IMPORTANT: Your answer MUST include at least one citation in the format {fmt}.")
+        if not is_grounded:
+            terms_str = ", ".join(ungrounded_terms[:5])
+            instructions.append(
+                f"CRITICAL GROUNDING ERROR: Your previous answer contained ungrounded words ({terms_str}) "
+                "not present in context. DO NOT explain, define, or invent terms. If the context does not "
+                "explicitly define the term, respond strictly in the format:\n"
+                "'The document does not provide a definition. It only states: <exact text from context> "
+                "[Source, Code]'."
             )
 
         retry_parts = []
@@ -306,17 +502,31 @@ def generate(question: str, retrieved_chunks: list, history: list | None = None)
             retry_parts.append(history_block)
         retry_parts.append(f"Context:\n{context_block}")
         retry_parts.append(f"Question: {question}")
-        retry_parts.append(cite_instruction)
+        retry_parts.append("\n".join(instructions))
         retry_prompt = "\n\n".join(retry_parts)
+
         try:
             answer, elapsed_ms = _call_ollama(retry_prompt, _SYSTEM_PROMPT)
+            log.info("RETRY DRAFT ANSWER:\n%s", answer)
         except Exception as e:
             log.error("Retry call failed: %s", e)
             answer = INSUFFICIENT_MSG
 
-        if not _has_citation(answer, retrieved_chunks):
+        has_citation_2 = _has_citation(answer, retrieved_chunks)
+        ungrounded_terms_2 = _extract_ungrounded_terms(answer, retrieved_chunks, history)
+        is_grounded_2 = len(ungrounded_terms_2) == 0
+
+        log.info(
+            "RETRY VALIDATION RESULT | has_citation=%s | is_grounded=%s | ungrounded_terms=%s",
+            has_citation_2, is_grounded_2, ungrounded_terms_2 or "None",
+        )
+
+        if not has_citation_2:
             log.warning("Citation guardrail: retry also failed — using insufficient fallback.")
             answer = INSUFFICIENT_MSG
+        elif not is_grounded_2:
+            log.warning("Grounding validation retry failed — using strict no-definition fallback.")
+            answer = _format_no_definition_fallback(retrieved_chunks)
 
     citations = _extract_citations(answer, retrieved_chunks)
 

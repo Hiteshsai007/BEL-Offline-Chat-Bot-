@@ -83,6 +83,172 @@ class RetrievedChunk:
     score: float   # cosine similarity 0-1 (dense) or fused RRF score (hybrid)
 
 
+_FAULT_CODE_PATTERNS = [
+    r"0x[0-9a-fA-F]{4}",
+    r"\berror\s*code\b",
+    r"\bfault\s*code\b",
+    r"\bwhat\s+does\s+0x",
+    r"\bexplain\s+0x",
+    r"\bmisfire\b",
+    r"\bmisfired\b",
+    r"\bfault\b",
+    r"\bcode\b",
+    r"\bremedy\b",
+    r"\bcorrective\b",
+    r"\btroubleshooting\b",
+    r"\bfire\s*abort",
+    r"\babort",
+    r"\bdepth\s*setting\b",
+    r"\bthrow\s*range\b",
+]
+
+
+def _is_fault_code_query(query: str) -> bool:
+    """Check if query is intended for the fault-code index."""
+    if not query:
+        return False
+    q_lower = query.lower()
+    return any(re.search(pat, q_lower) for pat in _FAULT_CODE_PATTERNS)
+
+
+_COMPARISON_PATTERNS = [
+    r"\bcompare\b",
+    r"\bcomparing\b",
+    r"\bcomparison\b",
+    r"\bdifference\b",
+    r"\bdifferences\b",
+    r"\bversus\b",
+    r"\bvs\.?\b",
+    r"\bboth\b",
+    r"\bacross\b",
+    r"\bmultiple documents\b",
+    r"\bmultiple manuals\b",
+    r"\ball manuals\b",
+    r"\ball documents\b",
+]
+
+
+def _is_comparison_query(query: str) -> bool:
+    """Check if the query explicitly asks to compare across multiple documents."""
+    if not query:
+        return False
+    q_lower = query.lower()
+    return any(re.search(pat, q_lower) for pat in _COMPARISON_PATTERNS)
+
+
+_PAGE_NUMBER_QUERY_RE = re.compile(
+    r"\b(?:page|p\.?)[_\s]*(\d+)", re.IGNORECASE
+)
+
+
+def _extract_page_number_from_query(query: str) -> int | None:
+    """
+    Extract explicit page number reference from user query if present.
+    Ignores fault code queries so fault-code routing takes precedence.
+    """
+    if not query or _is_fault_code_query(query):
+        return None
+    match = _PAGE_NUMBER_QUERY_RE.search(query)
+    if match:
+        try:
+            return int(match.group(1))
+        except ValueError:
+            return None
+    return None
+
+
+_DIAGRAM_IMAGE_PATTERNS = [
+    r"\bdiagram\b",
+    r"\bdiagrams\b",
+    r"\bfigure\b",
+    r"\bfigures\b",
+    r"\bchart\b",
+    r"\bcharts\b",
+    r"\bimage\b",
+    r"\bimages\b",
+    r"\billustration\b",
+    r"\bphoto\b",
+    r"\bpicture\b",
+]
+
+_OCR_PATTERNS = [
+    r"\bocr\b",
+    r"\btext\s+(?:is\s+)?visible\b",
+    r"\bextract\s+text\b",
+    r"\btext\s+inside\b",
+    r"\btext\s+in\s+(?:the\s+)?image\b",
+    r"\bread\s+(?:the\s+)?image\b",
+    r"\breadable\s+text\b",
+]
+
+
+def _is_diagram_or_image_query(query: str) -> bool:
+    """Check if the query explicitly asks about diagrams, figures, or images."""
+    if not query:
+        return False
+    q_lower = query.lower()
+    return any(re.search(pat, q_lower) for pat in _DIAGRAM_IMAGE_PATTERNS)
+
+
+def _is_ocr_query(query: str) -> bool:
+    """Check if query asks for text inside an image / OCR text."""
+    if not query:
+        return False
+    q_lower = query.lower()
+    return any(re.search(pat, q_lower) for pat in _OCR_PATTERNS)
+
+
+def _apply_document_filtering(
+    query: str, results: list[RetrievedChunk]
+) -> list[RetrievedChunk]:
+    """
+    Apply document-aware retrieval filtering to eliminate retrieval contamination.
+
+    Rules:
+      1. If the query explicitly requests comparison across documents, retain multi-document results.
+      2. If a fault code match exists (or any chunk has error_code / is from fault code doc),
+         include only chunks from the fault code document (IRL Fault Codes.pdf).
+      3. For general-document retrieval, group results by document_name and select only chunks
+         from the single highest-scoring document.
+    """
+    if not results or len(results) <= 1:
+        return results
+
+    if _is_comparison_query(query):
+        log.info("Document-aware filter: Comparison query detected. Retaining multi-document results.")
+        return results
+
+    # Rule 2: Check for fault-code chunks
+    fault_code_chunks = [
+        rc for rc in results
+        if bool(rc.chunk.get("error_code"))
+        or rc.chunk.get("document_name") == "IRL Fault Codes.pdf"
+        or "Fault Code" in (rc.chunk.get("document_name") or "")
+    ]
+    if fault_code_chunks:
+        log.info(
+            "Document-aware filter: Fault code match detected (%d of %d kept).",
+            len(fault_code_chunks), len(results),
+        )
+        return fault_code_chunks
+
+    # Rule 3: Group by document_name and select highest-scoring document
+    primary_doc = results[0].chunk.get("document_name")
+    if not primary_doc:
+        return results
+
+    single_doc_chunks = [
+        rc for rc in results
+        if rc.chunk.get("document_name") == primary_doc
+    ]
+
+    log.info(
+        "Document-aware filter: Grouped by document. Selected top document '%s' (%d chunk(s) kept out of %d).",
+        primary_doc, len(single_doc_chunks), len(results),
+    )
+    return single_doc_chunks
+
+
 class Retriever:
     """Loads and queries the FAISS index + chunk store with optional BM25 hybrid search."""
 
@@ -94,6 +260,7 @@ class Retriever:
         import faiss  # type: ignore
 
         self._lock = threading.Lock()
+        self._last_selected_index: str = "fault_code"
 
         if not index_path.exists():
             raise FileNotFoundError(
@@ -151,8 +318,11 @@ class Retriever:
             try:
                 with open(cache_path, "rb") as f:
                     bm25 = pickle.load(f)
-                log.info("BM25 index loaded from cache: %s", cache_path)
-                return bm25
+                c_size = getattr(bm25, "corpus_size", len(getattr(bm25, "doc_len", [])))
+                if c_size == len(chunks):
+                    log.info("BM25 index loaded from cache: %s", cache_path)
+                    return bm25
+                log.info("BM25 cache count mismatch (%d vs %d) -- rebuilding.", c_size, len(chunks))
             except Exception as e:
                 log.warning("Failed to load cached BM25 index (%s) -- rebuilding.", e)
 
@@ -212,10 +382,16 @@ class Retriever:
             self._general_chunks = []
             self._general_bm25 = None
 
+    @property
+    def last_selected_index(self) -> str:
+        """Return the index selected during the most recent retrieval call."""
+        return getattr(self, "_last_selected_index", "fault_code")
+
     # -- Exact code lookup ------------------------------------------------
 
     def _exact_lookup(self, query: str) -> list[RetrievedChunk]:
         """Find all error codes mentioned in the query and return their chunks."""
+        self._last_selected_index = "fault_code"
         matches = self._code_pattern.findall(query)
         results = []
         for raw_code in matches:
@@ -321,14 +497,18 @@ class Retriever:
         for rank, (idx, _score) in enumerate(sparse_results):
             fused_scores[idx] = fused_scores.get(idx, 0.0) + 1.0 / (rrf_k + rank + 1)
 
+        # Theoretical maximum RRF score (rank #1 in both dense and sparse retrievers)
+        max_rrf_score = 2.0 / (rrf_k + 1)
+
         # Sort by fused score descending
         sorted_indices = sorted(fused_scores.keys(), key=lambda i: fused_scores[i], reverse=True)
 
         results = []
         for idx in sorted_indices:
+            norm_score = min(1.0, fused_scores[idx] / max_rrf_score)
             results.append(RetrievedChunk(
                 chunk=chunks[idx],
-                score=fused_scores[idx],
+                score=norm_score,
             ))
 
         return results
@@ -336,7 +516,7 @@ class Retriever:
     # -- Hybrid search (main retrieval path) ------------------------------
 
     def _hybrid_search(self, query: str) -> list[RetrievedChunk]:
-        """Run hybrid (dense + sparse) search across all loaded indexes."""
+        """Run hybrid (dense + sparse) search across index selected by routing."""
         from app.rag.embedder import get_embedder
         from app.settings import RERANKER_ENABLED
         import faiss  # type: ignore
@@ -347,13 +527,29 @@ class Retriever:
 
         n_candidates = RETRIEVAL_CANDIDATES if _bm25_available else TOP_K
 
-        # Search primary (fault-code) index
-        all_results = self._search_single_index(
-            self._index, self._chunks, self._bm25, q_vec, query, n_candidates,
-        )
+        # Determine index routing
+        if self._general_index is None:
+            selected_index = "fault_code"
+        elif _is_comparison_query(query):
+            selected_index = "both"
+        elif _is_fault_code_query(query):
+            selected_index = "fault_code"
+        else:
+            selected_index = "general_document"
 
-        # Search general-document index if loaded
-        if self._general_index is not None:
+        self._last_selected_index = selected_index
+
+        all_results: list[RetrievedChunk] = []
+
+        # Search primary (fault-code) index if selected
+        if selected_index in ("fault_code", "both"):
+            fc_results = self._search_single_index(
+                self._index, self._chunks, self._bm25, q_vec, query, n_candidates,
+            )
+            all_results.extend(fc_results)
+
+        # Search general-document index if selected and loaded
+        if selected_index in ("general_document", "both") and self._general_index is not None:
             general_results = self._search_single_index(
                 self._general_index, self._general_chunks, self._general_bm25,
                 q_vec, query, n_candidates,
@@ -377,7 +573,157 @@ class Retriever:
             reranker = get_reranker()
             deduped = reranker.rerank(query, deduped[:n_candidates])
 
-        return deduped[:RETURN_N]
+        filtered = _apply_document_filtering(query, deduped)
+
+        target_page = _extract_page_number_from_query(query)
+        is_img_query = _is_diagram_or_image_query(query)
+        is_ocr_q = _is_ocr_query(query)
+
+        if target_page is not None:
+            all_chunks = (self._general_chunks or []) + (self._chunks or [])
+            page_chunks = [
+                c for c in all_chunks if c.get("page_number") == target_page
+            ]
+
+            if is_img_query or is_ocr_q:
+                img_chunks = [
+                    c for c in page_chunks
+                    if (
+                        c.get("chunk_type") == "image"
+                        or "[Image:" in c.get("chunk_text", "")
+                    )
+                ]
+                # Check for explicit image ID in query (e.g. page_55_img_0)
+                explicit_img_match = re.search(r"\bpage_\d+_img_\d+\b", query, re.I)
+                if explicit_img_match:
+                    target_img_id = explicit_img_match.group(0).lower()
+                    specific_chunks = [
+                        c for c in img_chunks
+                        if (c.get("image_id") or "").lower() == target_img_id
+                        or f"[image: {target_img_id}]" in c.get("chunk_text", "").lower()
+                    ]
+                    if specific_chunks:
+                        img_chunks = specific_chunks
+
+                if is_ocr_q:
+                    ocr_chunks = [
+                        c for c in img_chunks
+                        if c.get("ocr_text") or "OCR Text:" in c.get("chunk_text", "")
+                    ]
+                    if ocr_chunks:
+                        img_chunks = ocr_chunks
+                    else:
+                        primary_doc = (
+                            page_chunks[0].get("document_name")
+                            if page_chunks
+                            else "Document.pdf"
+                        )
+                        sentinel = {
+                            "chunk_id": f"no_ocr_text_page_{target_page}",
+                            "chunk_type": "no_ocr_text_sentinel",
+                            "page_number": target_page,
+                            "document_name": primary_doc,
+                            "chunk_text": f"NO_READABLE_TEXT_ON_PAGE:{target_page}",
+                        }
+                        log.info(
+                            "OCR RETRIEVAL | query='%s' | target_page=%d | "
+                            "no readable text in image",
+                            query[:60],
+                            target_page,
+                        )
+                        return [RetrievedChunk(chunk=sentinel, score=0.99)]
+
+                if img_chunks:
+                    score_map = {
+                        rc.chunk.get("chunk_id"): rc.score
+                        for rc in deduped
+                        if rc.chunk.get("chunk_id")
+                    }
+                    seen_cids: set[str] = set()
+                    img_results: list[RetrievedChunk] = []
+                    for c in img_chunks:
+                        cid = c.get("chunk_id")
+                        if cid and cid not in seen_cids:
+                            seen_cids.add(cid)
+                            base_score = score_map.get(cid, 0.95)
+                            img_results.append(
+                                RetrievedChunk(
+                                    chunk=c, score=max(base_score, 0.95)
+                                )
+                            )
+                    log.info(
+                        "DIAGRAM/OCR RETRIEVAL | query='%s' | target_page=%d | "
+                        "returned=%d image chunk(s)",
+                        query[:60],
+                        target_page,
+                        len(img_results),
+                    )
+                    return img_results[:RETURN_N]
+                else:
+                    primary_doc = (
+                        page_chunks[0].get("document_name")
+                        if page_chunks
+                        else "Document.pdf"
+                    )
+                    sentinel = {
+                        "chunk_id": f"no_image_page_{target_page}",
+                        "chunk_type": "no_image_sentinel",
+                        "page_number": target_page,
+                        "document_name": primary_doc,
+                        "chunk_text": f"NO_IMAGE_ON_PAGE:{target_page}",
+                    }
+                    log.info(
+                        "DIAGRAM RETRIEVAL | query='%s' | target_page=%d | "
+                        "no image found on page",
+                        query[:60],
+                        target_page,
+                    )
+                    return [RetrievedChunk(chunk=sentinel, score=0.99)]
+
+            if page_chunks:
+                score_map = {
+                    rc.chunk.get("chunk_id"): rc.score
+                    for rc in deduped
+                    if rc.chunk.get("chunk_id")
+                }
+                seen_cids: set[str] = set()
+                page_results: list[RetrievedChunk] = []
+                for c in page_chunks:
+                    cid = c.get("chunk_id")
+                    if cid and cid not in seen_cids:
+                        seen_cids.add(cid)
+                        base_score = score_map.get(cid, 0.95)
+                        page_results.append(
+                            RetrievedChunk(
+                                chunk=c, score=max(base_score, 0.95)
+                            )
+                        )
+                log.info(
+                    "PAGE-AWARE RETRIEVAL | query='%s' | target_page=%d | "
+                    "returned=%d chunk(s)",
+                    query[:60],
+                    target_page,
+                    len(page_results),
+                )
+                return page_results[:RETURN_N]
+            else:
+                log.info(
+                    "PAGE-AWARE RETRIEVAL | query='%s' | target_page=%d | "
+                    "page not found in index",
+                    query[:60],
+                    target_page,
+                )
+                return []
+
+        log.info(
+            "RETRIEVAL ROUTING | query='%s' | selected_index=%s | "
+            "candidates=%d | returned=%d",
+            query[:60],
+            selected_index,
+            len(all_results),
+            len(filtered),
+        )
+        return filtered[:RETURN_N]
 
     def _search_single_index(
         self,
@@ -414,16 +760,16 @@ class Retriever:
             exact = self._exact_lookup(query)
             if exact:
                 log.info("Exact code match for query '%s': %d chunk(s)", query[:60], len(exact))
-                return exact
+                return _apply_document_filtering(query, exact)
 
             # Hybrid search (FR-2)
-            hybrid = self._hybrid_search(query)
+            filtered = self._hybrid_search(query)
             mode = "hybrid (dense+BM25)" if _bm25_available else "dense-only"
             log.info(
                 "Search [%s] for '%s': %d chunk(s) returned",
-                mode, query[:60], len(hybrid),
+                mode, query[:60], len(filtered),
             )
-            return hybrid
+            return filtered
 
     def reload(self) -> None:
         """Hot-reload the index and chunk store (after re-ingestion)."""
