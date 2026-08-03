@@ -1,4 +1,7 @@
 import json
+import re
+
+import pytest
 
 from app.ingestion.image_captioner import (
     generate_image_caption_and_metadata,
@@ -6,6 +9,36 @@ from app.ingestion.image_captioner import (
 )
 from app.rag.pipeline import query
 from app.rag.retriever import _is_diagram_or_image_query, get_retriever
+
+
+@pytest.fixture(autouse=True)
+def mock_ollama_generator(monkeypatch):
+    """Autouse fixture to mock Ollama LLM calls for offline unit testing."""
+    def _mock_call_ollama(prompt: str, system: str) -> tuple[str, float]:
+        doc_match = re.search(r"Source:\s*([^,\)\n]+)", prompt)
+        page_match = re.search(r"page\s*(\d+)", prompt, re.IGNORECASE)
+        code_match = re.search(r"Error Code:\s*(0x[0-9a-fA-F]{4})", prompt)
+
+        doc = doc_match.group(1).strip() if doc_match else "Documentation"
+        page = page_match.group(1) if page_match else "1"
+        code = code_match.group(1) if code_match else None
+
+        if code:
+            citation = f"[{doc}, {code}]"
+        else:
+            citation = f"[{doc}, page {page}]"
+
+        p_lower = prompt.lower()
+        if "intake" in p_lower:
+            text = f"Image on page {page} shows intake air meter details {citation}."
+        elif "diagram" in p_lower or "image" in p_lower:
+            text = f"Diagram on page {page} details {citation}."
+        else:
+            text = f"Document content for page {page} {citation}."
+
+        return (text, 10.0)
+
+    monkeypatch.setattr("app.rag.generator._call_ollama", _mock_call_ollama)
 
 
 def test_is_diagram_or_image_query():
