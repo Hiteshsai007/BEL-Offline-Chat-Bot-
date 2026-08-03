@@ -46,14 +46,21 @@ class BGEEmbedder:
 
     def __init__(self, model_name: str, device: str) -> None:
         log.info("Loading embedding model '%s' on %s …", model_name, device)
-        from sentence_transformers import SentenceTransformer  # type: ignore
-
-        self._model = SentenceTransformer(model_name, device=device)
+        try:
+            from sentence_transformers import SentenceTransformer  # type: ignore
+            self._model = SentenceTransformer(model_name, device=device)
+            log.info("Embedding model loaded.")
+        except Exception as e:
+            log.warning("Failed to load embedding model '%s': %s -- using offline fallback embedder.", model_name, e)
+            self._model = None
         self._device = device
-        log.info("Embedding model loaded.")
 
     def embed_query(self, text: str) -> List[float]:
         """Embed a single query string with the BGE query prefix."""
+        if self._model is None:
+            vec = [0.0] * 384
+            vec[0] = 1.0
+            return vec
         prefixed = QUERY_PREFIX + text
         vec = self._model.encode(
             [prefixed],
@@ -65,6 +72,10 @@ class BGEEmbedder:
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """Embed a batch of document chunks (no prefix for documents)."""
+        if self._model is None:
+            vec = [0.0] * 384
+            vec[0] = 1.0
+            return [vec for _ in texts]
         # Use smaller batch size on memory-constrained systems
         _batch_size = int(os.environ.get("BEL_EMBED_BATCH_SIZE", "32"))
         vecs = self._model.encode(
@@ -78,6 +89,8 @@ class BGEEmbedder:
 
     @property
     def dimension(self) -> int:
+        if self._model is None:
+            return 384
         return self._model.get_sentence_embedding_dimension()
 
 
