@@ -45,10 +45,12 @@ async def lifespan(app: FastAPI):
     _startup_ready = False
     log.info("BEL Offline AI Interface starting …")
     try:
+        import asyncio
+
         from app.rag.retriever import get_retriever
-        get_retriever()          # loads FAISS index + chunks into memory
+        await asyncio.to_thread(get_retriever)  # load FAISS index + chunks in thread
         from app.rag.embedder import get_embedder
-        get_embedder()           # loads BGE model onto CPU
+        await asyncio.to_thread(get_embedder)   # load BGE model on CPU in thread
         log.info("Retriever and embedder ready.")
         _startup_ready = True
     except FileNotFoundError as e:
