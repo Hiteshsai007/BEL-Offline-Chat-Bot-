@@ -16,7 +16,9 @@ except ImportError:
 
 def test_os_detection():
     os_info = bootstrap.detect_os()
-    assert os_info["system"] in ("Windows", "Linux"), f"Unsupported OS detected: {os_info['system']}"
+    assert os_info["system"] in ("Windows", "Linux"), (
+        f"Unsupported OS detected: {os_info['system']}"
+    )
     assert "release" in os_info
     assert "machine" in os_info
     if os_info["system"] == "Linux":
@@ -28,7 +30,12 @@ def test_os_detection():
 def test_python_version_check():
     res = bootstrap.check_python()
     assert res.name == "Python"
-    if (sys.version_info.major, sys.version_info.minor) >= bootstrap.MIN_PYTHON and (sys.version_info.major, sys.version_info.minor) <= bootstrap.MAX_PYTHON:
+    if (
+        (sys.version_info.major, sys.version_info.minor)
+        >= bootstrap.MIN_PYTHON
+        and (sys.version_info.major, sys.version_info.minor)
+        <= bootstrap.MAX_PYTHON
+    ):
         assert res.before == bootstrap.Status.PRESENT
         assert res.after == bootstrap.Status.PRESENT
     else:
@@ -59,7 +66,8 @@ def test_read_config_tag():
 
 
 def test_check_pip_packages_reports_outdated_version(tmp_path, monkeypatch):
-    """Bootstrap should treat installed packages that do not satisfy the requirements as outdated."""
+    """Bootstrap should treat installed packages that do not satisfy the
+    requirements as outdated."""
     req_file = tmp_path / "requirements.txt"
     req_file.write_text("rapidocr_onnxruntime>=1.3.0\n", encoding="utf-8")
 
@@ -68,7 +76,12 @@ def test_check_pip_packages_reports_outdated_version(tmp_path, monkeypatch):
 
     def mock_run(cmd, **kw):
         if len(cmd) >= 3 and cmd[1] == "list" and cmd[2] == "--format=json":
-            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout='[{"name": "rapidocr_onnxruntime", "version": "1.2.0"}]', stderr="")
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout='[{"name": "rapidocr_onnxruntime", "version": "1.2.0"}]',
+                stderr="",
+            )
         raise AssertionError(f"unexpected command: {cmd}")
 
     monkeypatch.setattr(bootstrap, "_run", mock_run)
@@ -79,9 +92,29 @@ def test_check_pip_packages_reports_outdated_version(tmp_path, monkeypatch):
 
 
 def test_run_bootstrap_reexecutes_with_supported_python(monkeypatch):
-    """Bootstrap should restart itself with a supported interpreter when the current one is unsupported."""
-    monkeypatch.setattr(bootstrap, "detect_os", lambda: {"system": "Windows", "release": "11", "machine": "AMD64", "pkg_manager": "winget"})
-    monkeypatch.setattr(bootstrap, "check_python", lambda: bootstrap.Result("Python", bootstrap.Status.OUTDATED, bootstrap.Status.OUTDATED, "3.14.2", detail="unsupported"))
+    """Bootstrap should restart itself with a supported interpreter when
+    the current one is unsupported."""
+    monkeypatch.setattr(
+        bootstrap,
+        "detect_os",
+        lambda: {
+            "system": "Windows",
+            "release": "11",
+            "machine": "AMD64",
+            "pkg_manager": "winget",
+        },
+    )
+    monkeypatch.setattr(
+        bootstrap,
+        "check_python",
+        lambda: bootstrap.Result(
+            "Python",
+            bootstrap.Status.OUTDATED,
+            bootstrap.Status.OUTDATED,
+            "3.14.2",
+            detail="unsupported",
+        ),
+    )
     monkeypatch.setattr(bootstrap, "install_python_windows", lambda: None)
     monkeypatch.setattr(bootstrap, "_find_supported_python_command", lambda: ["C:/Python313/python.exe"])
     monkeypatch.setattr(bootstrap.sys, "argv", ["bootstrap.py", "--check-only"])
@@ -110,8 +143,18 @@ def test_read_config_embed():
 def test_summary_does_not_crash(capsys):
     """Test that print_summary formats text without crashing."""
     results = [
-        bootstrap.Result("Test1", bootstrap.Status.ABSENT, bootstrap.Status.INSTALLED, detail="installed fine"),
-        bootstrap.Result("Test2", bootstrap.Status.PRESENT, bootstrap.Status.PRESENT, version="1.0"),
+        bootstrap.Result(
+            "Test1",
+            bootstrap.Status.ABSENT,
+            bootstrap.Status.INSTALLED,
+            detail="installed fine",
+        ),
+        bootstrap.Result(
+            "Test2",
+            bootstrap.Status.PRESENT,
+            bootstrap.Status.PRESENT,
+            version="1.0",
+        ),
     ]
     bootstrap.print_summary(results)
     captured = capsys.readouterr()

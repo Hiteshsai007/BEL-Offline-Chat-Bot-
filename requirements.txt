@@ -13,5 +13,7 @@ pyyaml>=6.0
 python-multipart>=0.0.9
 rich==13.8.0
 rank-bm25>=0.2.2
+anyio>=4.0.0
+trio>=0.24.0
 rapidocr_onnxruntime>=1.2.3
 
