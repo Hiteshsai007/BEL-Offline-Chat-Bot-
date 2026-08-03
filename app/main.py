@@ -254,7 +254,16 @@ async def select_model(req: SelectModelRequest) -> dict:
     from app.settings import set_active_model
     if not req.model or not req.model.strip():
         raise HTTPException(status_code=422, detail="Model name must not be empty.")
-    new_model = set_active_model(req.model.strip())
+
+    requested = req.model.strip()
+    known = (await list_models())["available"]
+    if requested not in known:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Model '{requested}' is not installed in Ollama.",
+        )
+
+    new_model = set_active_model(requested)
     log.info("Active model switched to: %s", new_model)
     return {"status": "ok", "current_model": new_model}
 

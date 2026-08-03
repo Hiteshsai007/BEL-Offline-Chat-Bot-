@@ -365,10 +365,10 @@ function renderAIMessage(data) {
   row.className = 'msg-row ai';
 
   let body = '';
-  if (!data.found) {
-    body = `<strong>Not found in documentation</strong><br/>${esc(data.answer)}`;
-  } else if (data.error && !data.answer) {
+  if (data.error && !data.answer) {
     body = `<strong>Service error</strong><br/>${esc(data.error)}`;
+  } else if (!data.found) {
+    body = `<strong>Not found in documentation</strong><br/>${esc(data.answer)}`;
   } else {
     let formatted = esc(data.answer || '').replace(/\[([^\]]+)\]/g, '<span class="tag-citation">[$1]</span>').replace(/\n/g, '<br/>');
     body = formatted;
@@ -427,13 +427,39 @@ async function submitQuery() {
   const tStart = Date.now();
 
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 180000);
     const res = await fetch('/query', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question: q, session_id: currentSessionId })
+      body: JSON.stringify({ question: q, session_id: currentSessionId }),
+      signal: controller.signal
     });
-    const data = await res.json();
+    clearTimeout(timer);
+
     const elapsed = Date.now() - tStart;
+    let data;
+
+    if (!res.ok) {
+      let detail = `Server returned ${res.status}`;
+      try {
+        const payload = await res.json();
+        detail = payload.detail || payload.error || detail;
+      } catch {
+        detail = `${detail} with a non-JSON body.`;
+      }
+      const errObj = { found: false, answer: null, error: detail, retrieved_chunks: [], latency_ms: elapsed };
+      removeLoadingBubble();
+      renderAIMessage(errObj);
+      Storage.addMsg(currentSessionId, { role: 'ai', data: errObj });
+      return;
+    }
+
+    try {
+      data = await res.json();
+    } catch {
+      data = { found: false, answer: null, error: 'Server returned a non-JSON response.', retrieved_chunks: [], latency_ms: elapsed };
+    }
 
     removeLoadingBubble();
 
@@ -441,18 +467,12 @@ async function submitQuery() {
       data.latency_ms = elapsed;
     }
 
-    if (!res.ok) {
-      const errObj = { found: true, answer: null, error: data.detail || 'Server error', retrieved_chunks: [], latency_ms: elapsed };
-      renderAIMessage(errObj);
-      Storage.addMsg(currentSessionId, { role: 'ai', data: errObj });
-    } else {
-      renderAIMessage(data);
-      Storage.addMsg(currentSessionId, { role: 'ai', data: data });
-    }
+    renderAIMessage(data);
+    Storage.addMsg(currentSessionId, { role: 'ai', data: data });
   } catch (err) {
     const elapsed = Date.now() - tStart;
     removeLoadingBubble();
-    const errObj = { found: true, answer: null, error: 'Connection failed: ' + err.message, retrieved_chunks: [], latency_ms: elapsed };
+    const errObj = { found: false, answer: null, error: 'Connection failed: ' + err.message, retrieved_chunks: [], latency_ms: elapsed };
     renderAIMessage(errObj);
     Storage.addMsg(currentSessionId, { role: 'ai', data: errObj });
   } finally {
