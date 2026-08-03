@@ -192,8 +192,8 @@ async def clear_session_endpoint(req: ClearSessionRequest):
 @app.get("/health")
 async def health() -> JSONResponse:
     """Liveness check — verifies Ollama is reachable and index exists."""
-    from app.settings import get_active_model
-    current_model = get_active_model()
+    from app.settings import MODEL_TAG, get_active_model
+    current_model = get_active_model() or MODEL_TAG
     status = {
         "server": "ok",
         "index_exists": FAISS_INDEX_PATH.exists(),
