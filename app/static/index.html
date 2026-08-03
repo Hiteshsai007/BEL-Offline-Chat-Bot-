@@ -3,130 +3,236 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BEL — IRL Fault Code Assistant</title>
-  <meta name="description" content="Offline AI-powered chatbot for IRL fault code lookup. Powered by local inference — no internet required." />
+  <title>BEL AI Fault Code Assistant</title>
   <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="stylesheet" href="style.css" />
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
 
-  <!-- ── Sidebar ─────────────────────────────────────────────────────── -->
+  <!-- LEFT SIDEBAR -->
   <aside class="sidebar" id="sidebar">
+    <!-- Header -->
     <div class="sidebar-header">
-      <div class="sidebar-brand">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
-        </svg>
-        <span>BEL AI</span>
+      <div class="brand-group">
+        <!-- Official Bharat Electronics Limited (BEL) Corporate Emblem SVG -->
+        <div class="brand-logo" title="Bharat Electronics Limited">
+          <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="100" height="100" rx="20" fill="url(#belGrad)"/>
+            <ellipse cx="50" cy="50" rx="38" ry="15" transform="rotate(-30 50 50)" stroke="#F59E0B" stroke-width="3.5" stroke-dasharray="75 15"/>
+            <ellipse cx="50" cy="50" rx="38" ry="15" transform="rotate(30 50 50)" stroke="#38BDF8" stroke-width="3.5"/>
+            <path d="M50 18 L58 38 L80 42 L63 56 L69 78 L50 65 L31 78 L37 56 L20 42 L42 38 Z" fill="#F59E0B"/>
+            <circle cx="50" cy="50" r="14" fill="#0F172A" stroke="#FFFFFF" stroke-width="2.5"/>
+            <text x="50" y="54" font-family="Arial, sans-serif" font-weight="900" font-size="10.5" fill="#FFFFFF" text-anchor="middle" letter-spacing="0.5">BEL</text>
+            <defs>
+              <linearGradient id="belGrad" x1="0" y1="0" x2="100" y2="100">
+                <stop offset="0%" stop-color="#002244"/>
+                <stop offset="100%" stop-color="#004488"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <span class="brand-name">BEL AI</span>
+          <span class="brand-sub">Fault Code Assistant</span>
+        </div>
       </div>
-      <button class="sidebar-toggle" id="sidebarToggle" aria-label="Toggle sidebar">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>
+      <button class="collapse-btn" id="sidebarCollapseBtn" title="Collapse sidebar">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/>
         </svg>
       </button>
     </div>
 
-    <button class="new-chat-btn" id="newChatBtn">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-      </svg>
-      <span>New Chat</span>
-    </button>
-
-    <div class="sidebar-section-label">Quick Lookup</div>
-    <div class="sidebar-chips" id="sidebarChips">
-      <button class="chip" data-q="What does error code 0x0003 mean?">0x0003 — Fire aborted</button>
-      <button class="chip" data-q="What is a misfire error?">Misfire errors</button>
-      <button class="chip" data-q="What causes fire abort?">Fire abort cause</button>
-      <button class="chip" data-q="What is depth setting failed?">Depth setting</button>
-      <button class="chip" data-q="Explain error code 0x0017">0x0017 — Depth fail</button>
-      <button class="chip" data-q="What does throw range invalid mean?">Throw range errors</button>
+    <!-- New Chat Button -->
+    <div class="new-chat-wrap">
+      <button class="btn-new-chat" id="newChatBtn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        <span>New Chat</span>
+      </button>
     </div>
 
-    <div class="sidebar-footer">
-      <div class="status-badge" id="statusBadge">
-        <span class="status-dot" id="statusDot"></span>
-        <span id="statusLabel">Checking…</span>
+    <!-- History Section -->
+    <div class="history-block">
+      <div class="block-header">
+        <span class="block-title">HISTORY</span>
+        <button class="icon-btn-search" id="historySearchToggle" title="Search History">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+        </button>
       </div>
-      <div class="sidebar-meta">
-        <span>Model: <code id="footerModel">—</code></span>
-        <span>100% Offline</span>
+
+      <!-- History Search Input -->
+      <div class="search-input-wrap" id="searchWrap">
+        <input type="text" class="history-search-input" id="historySearchInput" placeholder="Search chats..." />
+      </div>
+
+      <!-- History Items Scroll List -->
+      <div class="history-items-list" id="historyList">
+        <!-- Rendered by JS -->
+      </div>
+
+      <!-- View All History Button -->
+      <div class="view-all-wrap">
+        <button class="btn-view-all" id="viewAllBtn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/><polyline points="12 8 12 12 16 14"/>
+          </svg>
+          <span id="viewAllText">View all history</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Quick Access Section -->
+    <div class="quick-access-block">
+      <div class="block-header">
+        <span class="block-title">QUICK ACCESS</span>
+      </div>
+      <div class="quick-access-list">
+        <button class="quick-btn" data-q="What does error code 0x0003 mean?">
+          <span>0x0003 — Fire aborted</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+        <button class="quick-btn" data-q="What is a misfire error?">
+          <span>Misfire errors</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+        <button class="quick-btn" data-q="What is depth setting failed?">
+          <span>Depth setting</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+        <button class="quick-btn" data-q="Explain error code 0x0017">
+          <span>0x0017 — Depth fail</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+        <button class="quick-btn" data-q="What does throw range invalid mean?">
+          <span>Throw range errors</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Bottom Status Card -->
+    <div class="sidebar-bottom">
+      <div class="status-card">
+        <div class="status-left">
+          <div class="status-row">
+            <span class="status-dot-ok" id="statusDot"></span>
+            <span id="statusLabel" class="status-text">System ready</span>
+          </div>
+          
+          <!-- Ollama Model Switcher Dropdown -->
+          <div class="model-picker-row">
+            <span class="model-label">Model:</span>
+            <select id="modelSelect" class="model-select-dropdown" title="Switch Ollama Model">
+              <option value="qwen2.5:3b">qwen2.5:3b</option>
+            </select>
+          </div>
+          
+          <div class="status-sub">100% Offline</div>
+        </div>
+        <button class="gear-btn" title="Settings">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
       </div>
     </div>
   </aside>
 
-  <!-- ── Main Chat Area ──────────────────────────────────────────────── -->
-  <div class="chat-area" id="chatArea">
-
-    <!-- Top bar (mobile) -->
-    <header class="topbar" id="topbar">
-      <button class="topbar-menu" id="menuBtn" aria-label="Open sidebar">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>
+  <!-- MAIN AREA -->
+  <main class="main-area">
+    <!-- Top Right Light/Dark Theme Toggle Icon -->
+    <div class="top-actions">
+      <button class="top-sun-btn" id="themeToggleBtn" title="Toggle Light / Dark Mode">
+        <svg id="themeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
         </svg>
       </button>
-      <span class="topbar-title">BEL Fault Code Assistant</span>
-      <span class="topbar-status">
-        <span class="status-dot" id="statusDotMobile"></span>
-      </span>
-    </header>
-
-    <!-- Messages container -->
-    <div class="messages" id="messages">
-
-      <!-- Welcome message (shown on fresh load) -->
-      <div class="welcome" id="welcomeScreen">
-        <div class="welcome-icon">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
-          </svg>
-        </div>
-        <h1 class="welcome-title">BEL Fault Code Assistant</h1>
-        <p class="welcome-sub">Ask me about any IRL fault code. I'll look it up in the knowledge base and give you a grounded answer — completely offline.</p>
-        <div class="welcome-chips">
-          <button class="welcome-chip" data-q="What does error code 0x0003 mean?">
-            <span class="wchip-icon">⚡</span>
-            <span class="wchip-text">What does 0x0003 mean?</span>
-          </button>
-          <button class="welcome-chip" data-q="What is a misfire error?">
-            <span class="wchip-icon">🔥</span>
-            <span class="wchip-text">What is a misfire error?</span>
-          </button>
-          <button class="welcome-chip" data-q="Explain error 0x0017">
-            <span class="wchip-icon">🔧</span>
-            <span class="wchip-text">Explain error 0x0017</span>
-          </button>
-          <button class="welcome-chip" data-q="What does throw range invalid mean?">
-            <span class="wchip-icon">📡</span>
-            <span class="wchip-text">What is throw range invalid?</span>
-          </button>
-        </div>
-      </div>
-
     </div>
 
-    <!-- Input bar (fixed at bottom) -->
-    <div class="input-bar" id="inputBar">
-      <div class="input-bar-inner">
-        <textarea
-          id="queryInput"
-          class="chat-input"
-          placeholder="Ask about any IRL fault code..."
-          rows="1"
-          autocomplete="off"
-          spellcheck="false"
-        ></textarea>
-        <button class="send-btn" id="sendBtn" aria-label="Send message" disabled>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/>
-          </svg>
+    <!-- Desktop Sidebar Expand Toggle -->
+    <button class="sidebar-expand-toggle" id="sidebarExpandBtn" title="Expand Sidebar">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+    </button>
+
+    <!-- Main Viewport -->
+    <div class="viewport" id="viewport">
+      <!-- Hero Welcome Section -->
+      <div class="hero-section" id="heroSection">
+        <h1 class="hero-title">BEL Fault Code <span class="accent-text">Assistant</span></h1>
+        <p class="hero-sub1">Ask me about any IRL fault code.</p>
+        <p class="hero-sub2">I'll look it up in the knowledge base and give you a grounded answer.</p>
+      </div>
+
+      <!-- Active Chat Messages List -->
+      <div class="messages-container" id="messagesContainer" style="display: none;">
+        <!-- Rendered by JS -->
+      </div>
+    </div>
+
+    <!-- Search Input Area -->
+    <div class="input-area-wrap">
+      <div class="input-card">
+        <textarea class="main-textarea" id="mainInput" rows="1" placeholder="Ask about any IRL fault code..."></textarea>
+        <button class="btn-send" id="sendBtn" disabled title="Send message">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
         </button>
       </div>
-      <div class="input-hint">
-        <span>Press <kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for new line</span>
-      </div>
     </div>
 
+    <!-- 4 Cards Row -->
+    <div class="four-cards-grid" id="fourCardsGrid">
+      <button class="grid-card" data-q="What does error code 0x0003 mean?">
+        <div>
+          <div class="card-title">0x0003 — Fire aborted</div>
+          <div class="card-desc">What does this fault code mean?</div>
+        </div>
+        <div class="card-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></div>
+      </button>
+
+      <button class="grid-card" data-q="What is a misfire error?">
+        <div>
+          <div class="card-title">Misfire errors</div>
+          <div class="card-desc">Learn about misfire related errors</div>
+        </div>
+        <div class="card-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></div>
+      </button>
+
+      <button class="grid-card" data-q="Explain error code 0x0017">
+        <div>
+          <div class="card-title">0x0017 — Depth fail</div>
+          <div class="card-desc">Explain the depth fail error</div>
+        </div>
+        <div class="card-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></div>
+      </button>
+
+      <button class="grid-card" data-q="What does throw range invalid mean?">
+        <div>
+          <div class="card-title">Throw range errors</div>
+          <div class="card-desc">Understand throw range invalid errors</div>
+        </div>
+        <div class="card-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></div>
+      </button>
+    </div>
+
+    <!-- Bottom Disclaimer -->
+    <div class="bottom-disclaimer">
+      Built for offline use. All data stays on your device.
+    </div>
+  </main>
+
+  <!-- Context Menu for History Items -->
+  <div class="ctx-popup" id="ctxPopup">
+    <button class="ctx-option" id="ctxRename">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      Rename
+    </button>
+    <button class="ctx-option danger" id="ctxDelete">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+      Delete
+    </button>
   </div>
 
   <script src="/static/app.js"></script>

@@ -33,11 +33,11 @@ if (-not (Test-Path $Activate)) {
 
 # --- Step 2: Set offline flags (telemetry prevention) ------------------------
 Write-Host "[2/6] Setting offline environment flags ..." -ForegroundColor Yellow
-$env:HF_HUB_OFFLINE          = "1"
 $env:TRANSFORMERS_OFFLINE    = "1"
+$env:HF_HUB_OFFLINE          = "1"
 $env:HF_DATASETS_OFFLINE     = "1"
 $env:TOKENIZERS_PARALLELISM  = "false"
-Write-Host "      HF_HUB_OFFLINE=1, TRANSFORMERS_OFFLINE=1, HF_DATASETS_OFFLINE=1" -ForegroundColor Green
+Write-Host "      TRANSFORMERS_OFFLINE=1, HF_HUB_OFFLINE=1, HF_DATASETS_OFFLINE=1" -ForegroundColor Green
 
 # --- Step 3: Install Python dependencies --------------------------------------
 Write-Host "[3/6] Installing Python dependencies ..." -ForegroundColor Yellow
@@ -70,29 +70,20 @@ Write-Host "      Embedding model ready." -ForegroundColor Green
 
 # --- Step 5: Check Ollama ------------------------------------------------------
 Write-Host "[5/6] Checking Ollama ..." -ForegroundColor Yellow
-# Read the model tag from config.yaml (single source of truth)
-$ConfigPath = Join-Path $Root "app" "config.yaml"
-$OllamaTag = "qwen2.5:3b"  # fallback default
-if (Test-Path $ConfigPath) {
-    $cfgContent = Get-Content $ConfigPath -Raw
-    if ($cfgContent -match 'ollama_tag:\s*["'']?([^"' '\r\n]+)') {
-        $OllamaTag = $Matches[1].Trim()
-    }
-}
 try {
     $ollamaResp = Invoke-RestMethod -Uri "http://127.0.0.1:11434/api/tags" -TimeoutSec 5
     $modelNames = $ollamaResp.models | ForEach-Object { $_.name }
-    if ($modelNames -like "*$OllamaTag*") {
-        Write-Host "      Ollama running. $OllamaTag is available." -ForegroundColor Green
+    if ($modelNames -like "*qwen2.5:3b*") {
+        Write-Host "      Ollama running. qwen2.5:3b is available." -ForegroundColor Green
     } else {
-        Write-Host "      Ollama running but $OllamaTag not found. Pulling now ..." -ForegroundColor Yellow
-        ollama pull $OllamaTag
+        Write-Host "      Ollama running but qwen2.5:3b not found. Pulling now ..." -ForegroundColor Yellow
+        ollama pull qwen2.5:3b
         Write-Host "      Model pulled." -ForegroundColor Green
     }
 } catch {
     Write-Host "      WARNING: Cannot reach Ollama at 127.0.0.1:11434." -ForegroundColor Red
     Write-Host "      Make sure Ollama is installed and running: https://ollama.com" -ForegroundColor Red
-    Write-Host "      Then run: ollama pull $OllamaTag" -ForegroundColor Red
+    Write-Host "      Then run: ollama pull qwen2.5:3b" -ForegroundColor Red
 }
 
 # --- Step 6: Create Desktop Shortcuts -----------------------------------------

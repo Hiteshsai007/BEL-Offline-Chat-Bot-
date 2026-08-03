@@ -59,6 +59,18 @@ CFG: dict = _load()
 
 # ── Convenience accessors ──────────────────────────────────────────────────
 MODEL_TAG: str = _get(CFG, "model", "ollama_tag")
+
+
+def get_active_model() -> str:
+    return MODEL_TAG
+
+
+def set_active_model(tag: str) -> str:
+    global MODEL_TAG
+    MODEL_TAG = tag
+    return MODEL_TAG
+
+
 OLLAMA_URL: str = _get(CFG, "model", "ollama_url")
 TEMPERATURE: float = _get(CFG, "model", "temperature")
 MAX_TOKENS: int = _get(CFG, "model", "max_tokens")
