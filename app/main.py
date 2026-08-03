@@ -128,6 +128,16 @@ async def favicon() -> FileResponse:
     return FileResponse(str(icon_path), media_type="image/x-icon")
 
 
+@app.get("/style.css", include_in_schema=False)
+async def serve_css() -> FileResponse:
+    return FileResponse(str(STATIC_DIR / "style.css"), media_type="text/css")
+
+
+@app.get("/app.js", include_in_schema=False)
+async def serve_js() -> FileResponse:
+    return FileResponse(str(STATIC_DIR / "app.js"), media_type="application/javascript")
+
+
 @app.post("/query", response_model=QueryResponse, dependencies=[Depends(verify_same_origin)])
 def query_endpoint(req: QueryRequest) -> QueryResponse:
     """
@@ -182,11 +192,13 @@ async def clear_session_endpoint(req: ClearSessionRequest):
 @app.get("/health")
 async def health() -> JSONResponse:
     """Liveness check — verifies Ollama is reachable and index exists."""
+    from app.settings import get_active_model
+    current_model = get_active_model()
     status = {
         "server": "ok",
         "index_exists": FAISS_INDEX_PATH.exists(),
         "ollama": "unknown",
-        "model": MODEL_TAG,
+        "model": current_model,
         "startup_ready": _startup_ready,
     }
     try:
@@ -195,7 +207,8 @@ async def health() -> JSONResponse:
             if r.status_code == 200:
                 tags = [m["name"] for m in r.json().get("models", [])]
                 status["ollama"] = "ok"
-                status["model_pulled"] = any(MODEL_TAG in t for t in tags)
+                status["model_pulled"] = any(current_model in t for t in tags)
+                status["available_models"] = tags
             else:
                 status["ollama"] = f"http_{r.status_code}"
     except Exception as e:
@@ -211,6 +224,39 @@ async def health() -> JSONResponse:
     status["ready"] = overall
     code = 200 if overall else 503
     return JSONResponse(content=status, status_code=code)
+
+
+@app.get("/models")
+async def list_models() -> dict:
+    """List available Ollama models."""
+    from app.settings import OLLAMA_URL, get_active_model
+    current = get_active_model()
+    available = [current]
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            r = await client.get(f"{OLLAMA_URL}/api/tags")
+            if r.status_code == 200:
+                tags = [m["name"] for m in r.json().get("models", [])]
+                if tags:
+                    available = tags
+    except Exception as e:
+        log.error("Failed to query Ollama tags: %s", e)
+    return {"current": current, "available": available}
+
+
+class SelectModelRequest(BaseModel):
+    model: str
+
+
+@app.post("/model/select", dependencies=[Depends(verify_same_origin)])
+async def select_model(req: SelectModelRequest) -> dict:
+    """Switch active Ollama model."""
+    from app.settings import set_active_model
+    if not req.model or not req.model.strip():
+        raise HTTPException(status_code=422, detail="Model name must not be empty.")
+    new_model = set_active_model(req.model.strip())
+    log.info("Active model switched to: %s", new_model)
+    return {"status": "ok", "current_model": new_model}
 
 
 @app.post("/reload", dependencies=[Depends(verify_same_origin)])

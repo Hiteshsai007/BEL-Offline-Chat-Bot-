@@ -1,424 +1,595 @@
 /**
- * BEL Offline AI Chatbot — Frontend Logic
- * Conversation-style interface. No external dependencies.
+ * BEL Offline AI Chatbot Client Script
+ * - Theme Switcher (Light / Dark)
+ * - Animated Loading Symbol during LLM inference
+ * - Elapsed Response Time Display
+ * - Dynamic Ollama Model Selector
  */
 
 'use strict';
 
-// ── DOM refs ──────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 
-const messagesEl    = $('messages');
-const welcomeScreen = $('welcomeScreen');
-const queryInput    = $('queryInput');
-const sendBtn       = $('sendBtn');
-const statusDot     = $('statusDot');
-const statusDotMob  = $('statusDotMobile');
-const statusLabel   = $('statusLabel');
-const footerModel   = $('footerModel');
-const sidebar       = $('sidebar');
-const menuBtn       = $('menuBtn');
-const sidebarToggle = $('sidebarToggle');
-const newChatBtn    = $('newChatBtn');
+// --- Element References ---
+const sidebar = $('sidebar');
+const sidebarCollapseBtn = $('sidebarCollapseBtn');
+const sidebarExpandBtn = $('sidebarExpandBtn');
 
-// ── Conversation state ────────────────────────────────────────────────
-let isProcessing = false;
+const newChatBtn = $('newChatBtn');
+const historySearchToggle = $('historySearchToggle');
+const searchWrap = $('searchWrap');
+const historySearchInput = $('historySearchInput');
+const historyList = $('historyList');
+const viewAllBtn = $('viewAllBtn');
+const viewAllText = $('viewAllText');
+
+const ctxPopup = $('ctxPopup');
+const ctxRename = $('ctxRename');
+const ctxDelete = $('ctxDelete');
+
+const heroSection = $('heroSection');
+const messagesContainer = $('messagesContainer');
+const mainInput = $('mainInput');
+const sendBtn = $('sendBtn');
+const fourCardsGrid = $('fourCardsGrid');
+
+const statusDot = $('statusDot');
+const statusLabel = $('statusLabel');
+const footerModel = $('footerModel');
+const modelSelect = $('modelSelect');
+const themeToggleBtn = $('themeToggleBtn');
+const themeIcon = $('themeIcon');
+
+// --- Storage Store ---
+const Storage = (() => {
+  const KEY = 'bel_offline_chats_v5';
+
+  function load() {
+    try {
+      const d = localStorage.getItem(KEY);
+      return d ? JSON.parse(d) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function save(list) {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(list));
+    } catch {}
+  }
+
+  return {
+    getAll() {
+      return load().sort((a, b) => b.updatedAt - a.updatedAt);
+    },
+    get(id) {
+      return load().find(s => s.id === id) || null;
+    },
+    create(id) {
+      const list = load();
+      const s = { id, title: 'New Chat', messages: [], createdAt: Date.now(), updatedAt: Date.now() };
+      list.push(s);
+      save(list);
+      return s;
+    },
+    addMsg(id, msg) {
+      const list = load();
+      const s = list.find(x => x.id === id);
+      if (!s) return;
+      s.messages.push(msg);
+      s.updatedAt = Date.now();
+      if (s.title === 'New Chat' && msg.role === 'user') {
+        const text = String(msg.content).trim();
+        s.title = text.length > 28 ? text.substring(0, 28) + '...' : text;
+      }
+      save(list);
+    },
+    delete(id) {
+      save(load().filter(x => x.id !== id));
+    },
+    rename(id, title) {
+      const list = load();
+      const s = list.find(x => x.id === id);
+      if (s) {
+        s.title = title;
+        save(list);
+      }
+    }
+  };
+})();
+
+// --- Application State ---
+let currentSessionId = null;
+let activeCtxId = null;
+let isViewAll = false;
+let isQuerying = false;
 
 function generateUUID() {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
     const r = Math.random() * 16 | 0;
-    const v = c === 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
   });
 }
 
-function getOrCreateSessionId() {
-  let id = sessionStorage.getItem('bel_session_id');
-  if (!id) {
-    id = generateUUID();
-    sessionStorage.setItem('bel_session_id', id);
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function formatTime(ts) {
+  const d = new Date(ts);
+  const now = new Date();
+  const diffDays = Math.floor((now - d) / 86400000);
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  if (diffDays === 0) return 'Today, ' + time;
+  if (diffDays === 1) return 'Yesterday, ' + time;
+  if (diffDays < 7) {
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    return days[d.getDay()] + ', ' + time;
   }
-  return id;
+  return d.toLocaleString('default', { month: 'short' }) + ' ' + d.getDate() + ', ' + time;
 }
 
-let currentSessionId = getOrCreateSessionId();
-
-
-// ── Utilities ─────────────────────────────────────────────────────────
-function escHtml(str) {
-  if (!str) return '';
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+// --- Theme Manager (Light / Dark Mode) ---
+function initTheme() {
+  const savedTheme = localStorage.getItem('bel_theme') || 'dark';
+  if (savedTheme === 'light') {
+    document.body.classList.add('light-mode');
+    renderMoonIcon();
+  } else {
+    document.body.classList.remove('light-mode');
+    renderSunIcon();
+  }
 }
 
-function formatAnswer(text) {
-  if (!text) return '';
-  let safe = escHtml(text);
-  // Highlight [Citation, Code] patterns
-  safe = safe.replace(
-    /\[([^\]]+)\]/g,
-    '<span class="citation">[$1]</span>'
-  );
-  // Convert newlines to <br>
-  safe = safe.replace(/\n/g, '<br>');
-  return safe;
+function toggleTheme() {
+  const isLight = document.body.classList.toggle('light-mode');
+  localStorage.setItem('bel_theme', isLight ? 'light' : 'dark');
+  if (isLight) renderMoonIcon();
+  else renderSunIcon();
 }
 
-function scrollToBottom() {
-  messagesEl.scrollTo({ top: messagesEl.scrollHeight, behavior: 'smooth' });
+function renderSunIcon() {
+  if (!themeIcon) return;
+  themeIcon.innerHTML = `<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>`;
 }
 
-// ── Auto-resize textarea ──────────────────────────────────────────────
-function autoResize() {
-  queryInput.style.height = 'auto';
-  queryInput.style.height = Math.min(queryInput.scrollHeight, 150) + 'px';
+function renderMoonIcon() {
+  if (!themeIcon) return;
+  themeIcon.innerHTML = `<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>`;
 }
 
-queryInput.addEventListener('input', () => {
-  autoResize();
-  sendBtn.disabled = !queryInput.value.trim();
+if (themeToggleBtn) {
+  themeToggleBtn.addEventListener('click', toggleTheme);
+}
+
+// --- History List Rendering ---
+function renderHistoryList() {
+  const query = historySearchInput ? historySearchInput.value.trim().toLowerCase() : '';
+  let all = Storage.getAll();
+
+  if (query) {
+    all = all.filter(s => s.title.toLowerCase().includes(query));
+  } else if (!isViewAll) {
+    all = all.slice(0, 10);
+  }
+
+  historyList.innerHTML = '';
+
+  if (all.length === 0) {
+    historyList.innerHTML = '<div style="padding:16px;text-align:center;font-size:12px;color:var(--text-dim);">No chats yet</div>';
+    return;
+  }
+
+  all.forEach(s => {
+    const item = document.createElement('div');
+    const isActive = (s.id === currentSessionId);
+    item.className = 'history-card-item' + (isActive ? ' active' : '');
+    item.dataset.id = s.id;
+
+    item.innerHTML = `
+      <div class="item-content">
+        <div class="item-title">${esc(s.title)}</div>
+        <div class="item-time">${formatTime(s.updatedAt)}</div>
+      </div>
+      <button class="item-menu-btn" title="Options">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>
+        </svg>
+      </button>
+    `;
+
+    item.addEventListener('click', e => {
+      if (e.target.closest('.item-menu-btn')) return;
+      loadSession(s.id);
+    });
+
+    const trigger = item.querySelector('.item-menu-btn');
+    trigger.addEventListener('click', e => {
+      e.stopPropagation();
+      openCtxMenu(s.id, trigger);
+    });
+
+    historyList.appendChild(item);
+  });
+}
+
+// --- Context Menu Popup ---
+function openCtxMenu(id, anchor) {
+  activeCtxId = id;
+  const rect = anchor.getBoundingClientRect();
+  ctxPopup.style.top = Math.min(rect.bottom + 4, window.innerHeight - 80) + 'px';
+  ctxPopup.style.left = Math.min(rect.left, window.innerWidth - 150) + 'px';
+  ctxPopup.classList.add('show');
+}
+
+function closeCtxMenu() {
+  ctxPopup.classList.remove('show');
+  activeCtxId = null;
+}
+
+document.addEventListener('click', e => {
+  if (!ctxPopup.contains(e.target) && !e.target.closest('.item-menu-btn')) {
+    closeCtxMenu();
+  }
 });
 
-// ── Health check ──────────────────────────────────────────────────────
-async function checkHealth() {
-  try {
-    const resp = await fetch('/health');
-    const data = await resp.json();
+ctxRename.addEventListener('click', () => {
+  if (!activeCtxId) return;
+  const targetId = activeCtxId;
+  closeCtxMenu();
 
-    const setStatus = (cls, text) => {
-      statusDot.className   = 'status-dot ' + cls;
-      if (statusDotMob) statusDotMob.className = 'status-dot ' + cls;
-      statusLabel.textContent = text;
-    };
+  const item = historyList.querySelector(`[data-id="${targetId}"]`);
+  if (!item) return;
 
-    if (data.ready) {
-      setStatus('ok', 'System ready');
-    } else if (data.ready === false && !data.startup_ready) {
-      // 503 from H-7: startup failed (embedder/index didn't load).
-      // Show a calm "starting up" message rather than a generic error.
-      setStatus('warn', 'Starting up\u2026');
-    } else if (!data.index_exists) {
-      setStatus('warn', 'Index not built');
-    } else if (data.ollama !== 'ok') {
-      setStatus('warn', 'Ollama not running');
-    } else {
-      setStatus('warn', 'Partial ready');
-    }
+  const titleEl = item.querySelector('.item-title');
+  const currentS = Storage.get(targetId);
+  if (!titleEl || !currentS) return;
 
-    if (data.model) {
-      footerModel.textContent = data.model;
-    }
-  } catch {
-    statusDot.className   = 'status-dot error';
-    if (statusDotMob) statusDotMob.className = 'status-dot error';
-    statusLabel.textContent = 'Server offline';
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.value = currentS.title;
+  inp.style.cssText = 'width:100%;background:var(--bg-page);border:1px solid var(--accent-blue);color:var(--text-white);font-size:12px;padding:2px 4px;border-radius:4px;outline:none;';
+
+  titleEl.replaceWith(inp);
+  inp.focus();
+  inp.select();
+
+  function commit() {
+    const val = inp.value.trim() || currentS.title;
+    Storage.rename(targetId, val);
+    renderHistoryList();
   }
+
+  inp.addEventListener('blur', commit);
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    if (e.key === 'Escape') renderHistoryList();
+  });
+});
+
+ctxDelete.addEventListener('click', () => {
+  if (!activeCtxId) return;
+  const targetId = activeCtxId;
+  closeCtxMenu();
+
+  const wasActive = (targetId === currentSessionId);
+  Storage.delete(targetId);
+
+  if (wasActive) {
+    const remaining = Storage.getAll();
+    if (remaining.length > 0) {
+      loadSession(remaining[0].id);
+    } else {
+      startNewChat();
+    }
+  } else {
+    renderHistoryList();
+  }
+});
+
+// --- Session Handling ---
+function loadSession(id) {
+  const s = Storage.get(id);
+  if (!s) return;
+
+  currentSessionId = id;
+  messagesContainer.innerHTML = '';
+
+  if (s.messages.length === 0) {
+    heroSection.style.display = 'flex';
+    messagesContainer.style.display = 'none';
+    fourCardsGrid.style.display = 'grid';
+  } else {
+    heroSection.style.display = 'none';
+    messagesContainer.style.display = 'flex';
+    fourCardsGrid.style.display = 'none';
+
+    s.messages.forEach(m => {
+      if (m.role === 'user') renderUserMessage(m.content);
+      else if (m.role === 'ai') renderAIMessage(m.data);
+    });
+  }
+
+  renderHistoryList();
 }
 
-// ── Message rendering ─────────────────────────────────────────────────
-function addUserMessage(text) {
-  // Hide welcome screen on first message
-  if (welcomeScreen) welcomeScreen.style.display = 'none';
+function startNewChat() {
+  const id = generateUUID();
+  Storage.create(id);
+  loadSession(id);
+  mainInput.value = '';
+  sendBtn.disabled = true;
+}
 
+// --- Messages UI ---
+function renderUserMessage(text) {
   const row = document.createElement('div');
   row.className = 'msg-row user';
   row.innerHTML = `
-    <div class="msg-bubble">${escHtml(text)}</div>
-    <div class="msg-avatar">U</div>
+    <div class="bubble">${esc(text)}</div>
+    <div class="msg-avatar-badge">U</div>
   `;
-  messagesEl.appendChild(row);
+  messagesContainer.appendChild(row);
   scrollToBottom();
 }
 
-function addThinkingBubble() {
+// Show Loading Symbol Bubble while waiting for LLM response
+function showLoadingBubble() {
   const row = document.createElement('div');
-  row.className = 'msg-row ai thinking';
-  row.id = 'thinkingRow';
+  row.className = 'msg-row ai';
+  row.id = 'loadingBubbleRow';
   row.innerHTML = `
-    <div class="msg-avatar">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
-      </svg>
-    </div>
-    <div class="msg-bubble">
-      <div class="thinking-dots">
+    <div class="msg-avatar-badge">AI</div>
+    <div class="thinking-bubble">
+      <div class="loading-dots">
         <span></span><span></span><span></span>
       </div>
-      <span class="thinking-text">Searching knowledge base...</span>
+      <span class="thinking-text">Searching knowledge base & generating answer...</span>
     </div>
   `;
-  messagesEl.appendChild(row);
+  messagesContainer.appendChild(row);
   scrollToBottom();
 }
 
-function removeThinkingBubble() {
-  const el = $('thinkingRow');
+function removeLoadingBubble() {
+  const el = $('loadingBubbleRow');
   if (el) el.remove();
 }
 
-function addAIMessage(data) {
-  removeThinkingBubble();
-
+function renderAIMessage(data) {
   const row = document.createElement('div');
   row.className = 'msg-row ai';
 
-  let bubbleClass = 'msg-bubble';
-  let content = '';
-
+  let body = '';
   if (!data.found) {
-    // Not found
-    bubbleClass += ' notfound-bubble';
-    content = `<strong>⚠ Not found in documentation</strong><br>${escHtml(data.answer)}`;
+    body = `<strong>Not found in documentation</strong><br/>${esc(data.answer)}`;
   } else if (data.error && !data.answer) {
-    // Error
-    bubbleClass += ' error-bubble';
-    content = `<strong>❌ Service error</strong><br>${escHtml(data.error || 'Unexpected error — check server logs.')}`;
+    body = `<strong>Service error</strong><br/>${esc(data.error)}`;
   } else {
-    // Normal answer
-    content = formatAnswer(data.answer);
+    let formatted = esc(data.answer || '').replace(/\[([^\]]+)\]/g, '<span class="tag-citation">[$1]</span>').replace(/\n/g, '<br/>');
+    body = formatted;
 
-    // Source chunks
     if (data.retrieved_chunks && data.retrieved_chunks.length > 0) {
-      content += '<div class="msg-sources">';
-      content += '<div class="msg-sources-label">📄 Retrieved Sources</div>';
+      body += `<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-card);"><div style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:6px;text-transform:uppercase;">Retrieved Sources</div>`;
       data.retrieved_chunks.forEach(c => {
         if (c.error_code) {
-          // Fault-code chunk
-          content += `<div class="source-item">
-            <span class="source-code">${escHtml(c.error_code)}</span>
-            <span class="source-desc">${escHtml(c.error_description || '')}</span>
-            <span class="source-remarks">${escHtml(c.error_remarks || '')}</span>
-          </div>`;
-        } else {
-          // General document chunk — show doc name + page
-          const doc = c.document_name || 'Unknown';
-          const shortDoc = doc.length > 30 ? doc.substring(0, 27) + '...' : doc;
-          const page = c.page_number ? `page ${c.page_number}` : '';
-          content += `<div class="source-item">
-            <span class="source-code">${escHtml(shortDoc)}</span>
-            <span class="source-desc">${escHtml(page)}</span>
-          </div>`;
+          body += `<div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;"><span style="font-family:monospace;color:var(--accent-blue);font-weight:600;">${esc(c.error_code)}</span> <span>${esc(c.error_description || '')}</span></div>`;
         }
       });
-      content += '</div>';
+      body += `</div>`;
     }
+  }
 
-    // Guardrail notice
-    if (data.guardrail_triggered) {
-      content += `<div class="msg-guardrail">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-        </svg>
-        Citation guardrail triggered — answer was regenerated for accuracy.
-      </div>`;
-    }
-
-    // Meta info
-    content += `<div class="msg-meta">`;
-    if (data.latency_ms) content += `<span>⏱ ${data.latency_ms}ms</span>`;
-    if (data.top_score)  content += `<span>📊 score ${data.top_score.toFixed(3)}</span>`;
-    content += '</div>';
+  // Response Time Badge at bottom of AI answer
+  if (data.latency_ms) {
+    const secStr = data.latency_ms >= 1000 ? (data.latency_ms / 1000).toFixed(2) + 's' : data.latency_ms + 'ms';
+    body += `<div class="response-time-badge">⏱ Response time: ${secStr}</div>`;
   }
 
   row.innerHTML = `
-    <div class="msg-avatar">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
-      </svg>
-    </div>
-    <div class="${bubbleClass}">${content}</div>
+    <div class="msg-avatar-badge">AI</div>
+    <div class="bubble">${body}</div>
   `;
-  messagesEl.appendChild(row);
+  messagesContainer.appendChild(row);
   scrollToBottom();
 }
 
-function addErrorMessage(errMsg) {
-  removeThinkingBubble();
-  addAIMessage({
-    found: true,
-    answer: null,
-    error: errMsg,
-    retrieved_chunks: [],
-    guardrail_triggered: false,
-    latency_ms: 0,
-    top_score: 0
-  });
+function scrollToBottom() {
+  const viewport = $('viewport');
+  viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
 }
 
-// ── Query submission ──────────────────────────────────────────────────
+// --- Query Submit Handler ---
 async function submitQuery() {
-  const question = queryInput.value.trim();
-  if (!question || isProcessing) return;
+  const q = mainInput.value.trim();
+  if (!q || isQuerying) return;
 
-  isProcessing = true;
+  isQuerying = true;
   sendBtn.disabled = true;
 
-  // Show user message
-  addUserMessage(question);
-  queryInput.value = '';
-  autoResize();
+  heroSection.style.display = 'none';
+  messagesContainer.style.display = 'flex';
+  fourCardsGrid.style.display = 'none';
 
-  // Show thinking indicator
-  addThinkingBubble();
+  renderUserMessage(q);
+  Storage.addMsg(currentSessionId, { role: 'user', content: q });
+  renderHistoryList();
+
+  mainInput.value = '';
+
+  // Show loading symbol
+  showLoadingBubble();
+
+  const tStart = Date.now();
 
   try {
-    const resp = await fetch('/query', {
-      method:  'POST',
+    const res = await fetch('/query', {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ question, session_id: currentSessionId }),
+      body: JSON.stringify({ question: q, session_id: currentSessionId })
     });
+    const data = await res.json();
+    const elapsed = Date.now() - tStart;
 
-    const data = await resp.json();
+    removeLoadingBubble();
 
-    if (!resp.ok) {
-      addErrorMessage(data.detail || `Server error (HTTP ${resp.status})`);
-      return;
+    if (!data.latency_ms) {
+      data.latency_ms = elapsed;
     }
 
-    if (data.session_id) {
-      currentSessionId = data.session_id;
-      sessionStorage.setItem('bel_session_id', currentSessionId);
+    if (!res.ok) {
+      const errObj = { found: true, answer: null, error: data.detail || 'Server error', retrieved_chunks: [], latency_ms: elapsed };
+      renderAIMessage(errObj);
+      Storage.addMsg(currentSessionId, { role: 'ai', data: errObj });
+    } else {
+      renderAIMessage(data);
+      Storage.addMsg(currentSessionId, { role: 'ai', data: data });
     }
-
-    addAIMessage(data);
-
   } catch (err) {
-    addErrorMessage(`Cannot reach the server. Is it running on port 8000? (${err.message})`);
+    const elapsed = Date.now() - tStart;
+    removeLoadingBubble();
+    const errObj = { found: true, answer: null, error: 'Connection failed: ' + err.message, retrieved_chunks: [], latency_ms: elapsed };
+    renderAIMessage(errObj);
+    Storage.addMsg(currentSessionId, { role: 'ai', data: errObj });
   } finally {
-    isProcessing = false;
+    isQuerying = false;
     sendBtn.disabled = false;
+    renderHistoryList();
   }
 }
 
-// ── New Chat ──────────────────────────────────────────────────────────
-function resetChat() {
-  currentSessionId = generateUUID();
-  sessionStorage.setItem('bel_session_id', currentSessionId);
+// --- Ollama Model Selector Handling ---
+async function loadAvailableModels() {
+  if (!modelSelect) return;
+  try {
+    const res = await fetch('/models');
+    const data = await res.json();
+    const current = data.current || 'qwen2.5:3b';
+    const available = data.available || [current];
 
-  // Remove all messages except the welcome screen
-  messagesEl.innerHTML = '';
-  // Rebuild the welcome screen
-  messagesEl.innerHTML = `
-    <div class="welcome" id="welcomeScreen">
-      <div class="welcome-icon">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
-        </svg>
-      </div>
-      <h1 class="welcome-title">BEL Fault Code Assistant</h1>
-      <p class="welcome-sub">Ask me about any IRL fault code. I'll look it up in the knowledge base and give you a grounded answer — completely offline.</p>
-      <div class="welcome-chips">
-        <button class="welcome-chip" data-q="What does error code 0x0003 mean?">
-          <span class="wchip-icon">⚡</span>
-          <span class="wchip-text">What does 0x0003 mean?</span>
-        </button>
-        <button class="welcome-chip" data-q="What is a misfire error?">
-          <span class="wchip-icon">🔥</span>
-          <span class="wchip-text">What is a misfire error?</span>
-        </button>
-        <button class="welcome-chip" data-q="Explain error 0x0017">
-          <span class="wchip-icon">🔧</span>
-          <span class="wchip-text">Explain error 0x0017</span>
-        </button>
-        <button class="welcome-chip" data-q="What does throw range invalid mean?">
-          <span class="wchip-icon">📡</span>
-          <span class="wchip-text">What is throw range invalid?</span>
-        </button>
-      </div>
-    </div>
-  `;
-  bindWelcomeChips();
-  closeSidebar();
-}
+    modelSelect.innerHTML = '';
+    available.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m;
+      opt.textContent = m;
+      if (m === current) opt.selected = true;
+      modelSelect.appendChild(opt);
+    });
 
-// ── Sidebar toggle (mobile) ──────────────────────────────────────────
-let overlay = null;
-
-function openSidebar() {
-  sidebar.classList.add('open');
-  if (!overlay) {
-    overlay = document.createElement('div');
-    overlay.className = 'sidebar-overlay show';
-    overlay.addEventListener('click', closeSidebar);
-    document.body.appendChild(overlay);
-  } else {
-    overlay.classList.add('show');
+    if (footerModel) footerModel.textContent = current;
+  } catch (e) {
+    console.warn('Failed to load available models:', e);
   }
 }
 
-function closeSidebar() {
-  sidebar.classList.remove('open');
-  if (overlay) overlay.classList.remove('show');
-}
-
-// ── Bind chip clicks ──────────────────────────────────────────────────
-function bindWelcomeChips() {
-  document.querySelectorAll('.welcome-chip').forEach(chip => {
-    chip.addEventListener('click', () => {
-      queryInput.value = chip.dataset.q;
-      sendBtn.disabled = false;
-      submitQuery();
-    });
+if (modelSelect) {
+  modelSelect.addEventListener('change', async () => {
+    const selectedModel = modelSelect.value;
+    try {
+      const res = await fetch('/model/select', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: selectedModel })
+      });
+      const data = await res.json();
+      if (data.status === 'ok') {
+        if (footerModel) footerModel.textContent = data.current_model;
+      }
+    } catch (e) {
+      alert('Failed to switch model: ' + e.message);
+    }
   });
 }
 
-function bindSidebarChips() {
-  document.querySelectorAll('.chip').forEach(chip => {
-    chip.addEventListener('click', () => {
-      queryInput.value = chip.dataset.q;
-      sendBtn.disabled = false;
-      closeSidebar();
-      submitQuery();
-    });
-  });
-}
+// --- Event Listeners ---
+mainInput.addEventListener('input', () => {
+  mainInput.style.height = 'auto';
+  mainInput.style.height = Math.min(mainInput.scrollHeight, 120) + 'px';
+  sendBtn.disabled = !mainInput.value.trim();
+});
 
-// ── Event listeners ───────────────────────────────────────────────────
-sendBtn.addEventListener('click', submitQuery);
-
-queryInput.addEventListener('keydown', e => {
+mainInput.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     submitQuery();
   }
 });
 
-if (menuBtn)       menuBtn.addEventListener('click', openSidebar);
-if (sidebarToggle) sidebarToggle.addEventListener('click', closeSidebar);
-if (newChatBtn)    newChatBtn.addEventListener('click', resetChat);
+sendBtn.addEventListener('click', submitQuery);
+newChatBtn.addEventListener('click', startNewChat);
 
-// ── Health polling with visibility guard (H-10) ───────────────────────
-let _healthInterval = null;
-const HEALTH_POLL_MS = 30_000;
+sidebarCollapseBtn.addEventListener('click', () => {
+  sidebar.classList.add('collapsed');
+});
 
-function startHealthPolling() {
-  if (_healthInterval) return;
-  checkHealth();
-  _healthInterval = setInterval(checkHealth, HEALTH_POLL_MS);
-}
+sidebarExpandBtn.addEventListener('click', () => {
+  sidebar.classList.remove('collapsed');
+});
 
-function stopHealthPolling() {
-  if (_healthInterval) {
-    clearInterval(_healthInterval);
-    _healthInterval = null;
-  }
-}
-
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) {
-    stopHealthPolling();
+historySearchToggle.addEventListener('click', () => {
+  searchWrap.classList.toggle('open');
+  if (searchWrap.classList.contains('open')) {
+    historySearchInput.focus();
   } else {
-    startHealthPolling();
+    historySearchInput.value = '';
+    renderHistoryList();
   }
 });
 
-// ── Init ──────────────────────────────────────────────────────────────
-bindWelcomeChips();
-bindSidebarChips();
-startHealthPolling();
+historySearchInput.addEventListener('input', renderHistoryList);
+
+viewAllBtn.addEventListener('click', () => {
+  isViewAll = !isViewAll;
+  viewAllText.textContent = isViewAll ? 'Show recent history' : 'View all history';
+  renderHistoryList();
+});
+
+document.querySelectorAll('.grid-card, .quick-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    mainInput.value = btn.dataset.q;
+    sendBtn.disabled = false;
+    submitQuery();
+  });
+});
+
+// --- Health Check ---
+async function checkHealth() {
+  try {
+    const r = await fetch('/health');
+    const d = await r.json();
+    if (d.ready) {
+      statusDot.className = 'status-dot-ok';
+      statusLabel.textContent = 'System ready';
+    } else {
+      statusDot.className = 'status-dot-ok warn';
+      statusLabel.textContent = 'Starting up...';
+    }
+    if (d.model) {
+      if (footerModel) footerModel.textContent = d.model;
+      if (modelSelect && modelSelect.value !== d.model) {
+        modelSelect.value = d.model;
+      }
+    }
+  } catch {
+    statusDot.className = 'status-dot-ok error';
+    statusLabel.textContent = 'Server offline';
+  }
+}
+
+// --- Init ---
+(function init() {
+  initTheme();
+  const chats = Storage.getAll();
+  if (chats.length > 0) {
+    loadSession(chats[0].id);
+  } else {
+    startNewChat();
+  }
+  loadAvailableModels();
+  checkHealth();
+  setInterval(checkHealth, 30000);
+})();

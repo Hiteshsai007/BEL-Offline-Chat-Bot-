@@ -1,4 +1,4 @@
-# BEL Offline AI Interface - Setup Script
+sen# BEL Offline AI Interface - Setup Script
 # Run once as: .\setup.ps1
 # Requires: Python 3.11+, Ollama installed
 # All operations are local. No internet access required after first model pull.
@@ -33,31 +33,27 @@ if (-not (Test-Path $Activate)) {
 
 # --- Step 2: Set offline flags (telemetry prevention) ------------------------
 Write-Host "[2/6] Setting offline environment flags ..." -ForegroundColor Yellow
-$env:HF_HUB_OFFLINE          = "1"
 $env:TRANSFORMERS_OFFLINE    = "1"
 $env:HF_DATASETS_OFFLINE     = "1"
 $env:TOKENIZERS_PARALLELISM  = "false"
-Write-Host "      HF_HUB_OFFLINE=1, TRANSFORMERS_OFFLINE=1, HF_DATASETS_OFFLINE=1" -ForegroundColor Green
+Write-Host "      TRANSFORMERS_OFFLINE=1, HF_DATASETS_OFFLINE=1" -ForegroundColor Green
 
 # --- Step 3: Install Python dependencies --------------------------------------
 Write-Host "[3/6] Installing Python dependencies ..." -ForegroundColor Yellow
 # Temporarily allow online for package install (first-time setup only)
 $env:TRANSFORMERS_OFFLINE = "0"
-$env:HF_HUB_OFFLINE = "0"
 # Install CPU-only PyTorch first (prevents DLL errors on PCs without NVIDIA GPU)
 Write-Host "      Installing PyTorch (CPU-only) ..." -ForegroundColor DarkGray
 pip install torch --index-url https://download.pytorch.org/whl/cpu --quiet
 Write-Host "      Installing remaining dependencies ..." -ForegroundColor DarkGray
 pip install -r requirements.txt --quiet
 $env:TRANSFORMERS_OFFLINE = "1"
-$env:HF_HUB_OFFLINE = "1"
 Write-Host "      Dependencies installed." -ForegroundColor Green
 
 # --- Step 4: Download BGE embedding model -------------------------------------
 Write-Host "[4/6] Downloading BGE embedding model (BAAI/bge-small-en-v1.5) ..." -ForegroundColor Yellow
 Write-Host "      This runs once. The model is cached locally for all future offline use." -ForegroundColor DarkGray
 $env:TRANSFORMERS_OFFLINE = "0"
-$env:HF_HUB_OFFLINE = "0"
 python -c "
 from sentence_transformers import SentenceTransformer
 print('  Downloading bge-small-en-v1.5 ...')
@@ -65,34 +61,24 @@ m = SentenceTransformer('BAAI/bge-small-en-v1.5', device='cpu')
 print('  Done.')
 "
 $env:TRANSFORMERS_OFFLINE = "1"
-$env:HF_HUB_OFFLINE = "1"
 Write-Host "      Embedding model ready." -ForegroundColor Green
 
 # --- Step 5: Check Ollama ------------------------------------------------------
 Write-Host "[5/6] Checking Ollama ..." -ForegroundColor Yellow
-# Read the model tag from config.yaml (single source of truth)
-$ConfigPath = Join-Path $Root "app" "config.yaml"
-$OllamaTag = "qwen2.5:3b"  # fallback default
-if (Test-Path $ConfigPath) {
-    $cfgContent = Get-Content $ConfigPath -Raw
-    if ($cfgContent -match 'ollama_tag:\s*["'']?([^"' '\r\n]+)') {
-        $OllamaTag = $Matches[1].Trim()
-    }
-}
 try {
     $ollamaResp = Invoke-RestMethod -Uri "http://127.0.0.1:11434/api/tags" -TimeoutSec 5
     $modelNames = $ollamaResp.models | ForEach-Object { $_.name }
-    if ($modelNames -like "*$OllamaTag*") {
-        Write-Host "      Ollama running. $OllamaTag is available." -ForegroundColor Green
+    if ($modelNames -like "*qwen2.5:3b*") {
+        Write-Host "      Ollama running. qwen2.5:3b is available." -ForegroundColor Green
     } else {
-        Write-Host "      Ollama running but $OllamaTag not found. Pulling now ..." -ForegroundColor Yellow
-        ollama pull $OllamaTag
+        Write-Host "      Ollama running but qwen2.5:3b not found. Pulling now ..." -ForegroundColor Yellow
+        ollama pull qwen2.5:3b
         Write-Host "      Model pulled." -ForegroundColor Green
     }
 } catch {
     Write-Host "      WARNING: Cannot reach Ollama at 127.0.0.1:11434." -ForegroundColor Red
     Write-Host "      Make sure Ollama is installed and running: https://ollama.com" -ForegroundColor Red
-    Write-Host "      Then run: ollama pull $OllamaTag" -ForegroundColor Red
+    Write-Host "      Then run: ollama pull qwen2.5:3b" -ForegroundColor Red
 }
 
 # --- Step 6: Create Desktop Shortcuts -----------------------------------------

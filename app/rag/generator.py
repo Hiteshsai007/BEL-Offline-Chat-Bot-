@@ -355,8 +355,10 @@ def _call_ollama(prompt: str, system: str) -> tuple[str, float]:
     Make a blocking call to Ollama's /api/generate endpoint.
     Raises httpx.HTTPError or RuntimeError on failure.
     """
+    from app.settings import get_active_model
+    current_model = get_active_model()
     payload = {
-        "model": MODEL_TAG,
+        "model": current_model,
         "prompt": prompt,
         "system": system,
         "stream": False,
@@ -367,7 +369,7 @@ def _call_ollama(prompt: str, system: str) -> tuple[str, float]:
         },
     }
     url = f"{OLLAMA_URL}/api/generate"
-    log.info("Calling Ollama model '%s' …", MODEL_TAG)
+    log.info("Calling Ollama model '%s' …", current_model)
     t0 = time.perf_counter()
 
     with httpx.Client(timeout=TIMEOUT) as client:
