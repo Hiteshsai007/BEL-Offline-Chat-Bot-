@@ -7,20 +7,31 @@ echo   BEL Offline AI Technical Assistant -- Setup (Windows)
 echo ============================================================
 echo.
 
-:: Try to find Python
-where python >nul 2>nul
-if %errorlevel% neq 0 (
+:: Find an available Python interpreter; bootstrap will auto-install a compatible one if needed.
+set "PYTHON_EXE="
+where py >nul 2>nul
+if not errorlevel 1 (
+    set "PYTHON_EXE=py"
+)
+
+if not defined PYTHON_EXE (
+    where python >nul 2>nul
+    if not errorlevel 1 (
+        set "PYTHON_EXE=python"
+    )
+)
+
+if not defined PYTHON_EXE (
     echo ERROR: Python was not found in your PATH.
     echo.
-    echo Please install Python 3.11 or later from https://www.python.org/downloads/
-    echo Make sure to check "Add Python to PATH" during installation.
+    echo Bootstrap will attempt to install Python automatically if possible.
     echo.
     pause
     exit /b 1
 )
 
 :: Run the bootstrap script
-python "%~dp0bootstrap.py" %*
+%PYTHON_EXE% "%~dp0bootstrap.py" %*
 set "exit_code=%errorlevel%"
 
 if %exit_code% equ 0 (

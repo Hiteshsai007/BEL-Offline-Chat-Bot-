@@ -14,6 +14,13 @@ Write-Host "============================================================" -Foreg
 Write-Host ""
 
 # --- Step 1: Create virtual environment ---------------------------------------
+$pyVersion = (python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+if ($pyVersion -notmatch '^(3\.(1[0-2]))$') {
+    Write-Host "ERROR: This project requires Python 3.11 or 3.12. Detected $pyVersion." -ForegroundColor Red
+    Write-Host "       Please install Python 3.11 or 3.12 and re-run setup." -ForegroundColor Red
+    exit 1
+}
+
 $VenvPath = Join-Path $Root ".venv"
 if (-not (Test-Path $VenvPath)) {
     Write-Host "[1/6] Creating virtual environment at .venv ..." -ForegroundColor Yellow
@@ -23,13 +30,12 @@ if (-not (Test-Path $VenvPath)) {
     Write-Host "[1/6] Virtual environment already exists - skipping." -ForegroundColor DarkGray
 }
 
-# Activate venv
-$Activate = Join-Path $VenvPath "Scripts\Activate.ps1"
-if (-not (Test-Path $Activate)) {
-    Write-Host "ERROR: Virtual environment activation script not found. Re-run setup." -ForegroundColor Red
+# Use the venv Python directly; this avoids the PowerShell activation prompt entirely.
+$PythonInVenv = Join-Path $VenvPath "Scripts\python.exe"
+if (-not (Test-Path $PythonInVenv)) {
+    Write-Host "ERROR: Virtual environment Python executable not found. Re-run setup." -ForegroundColor Red
     exit 1
 }
-& $Activate
 
 # --- Step 2: Set offline flags (telemetry prevention) ------------------------
 Write-Host "[2/6] Setting offline environment flags ..." -ForegroundColor Yellow
@@ -46,9 +52,9 @@ $env:TRANSFORMERS_OFFLINE = "0"
 $env:HF_HUB_OFFLINE = "0"
 # Install CPU-only PyTorch first (prevents DLL errors on PCs without NVIDIA GPU)
 Write-Host "      Installing PyTorch (CPU-only) ..." -ForegroundColor DarkGray
-pip install torch --index-url https://download.pytorch.org/whl/cpu --quiet
+& $PythonInVenv -m pip install torch --index-url https://download.pytorch.org/whl/cpu --quiet
 Write-Host "      Installing remaining dependencies ..." -ForegroundColor DarkGray
-pip install -r requirements.txt --quiet
+& $PythonInVenv -m pip install -r requirements.txt --quiet
 $env:TRANSFORMERS_OFFLINE = "1"
 $env:HF_HUB_OFFLINE = "1"
 Write-Host "      Dependencies installed." -ForegroundColor Green
@@ -58,7 +64,7 @@ Write-Host "[4/6] Downloading BGE embedding model (BAAI/bge-small-en-v1.5) ..." 
 Write-Host "      This runs once. The model is cached locally for all future offline use." -ForegroundColor DarkGray
 $env:TRANSFORMERS_OFFLINE = "0"
 $env:HF_HUB_OFFLINE = "0"
-python -c "
+& $PythonInVenv -c "
 from sentence_transformers import SentenceTransformer
 print('  Downloading bge-small-en-v1.5 ...')
 m = SentenceTransformer('BAAI/bge-small-en-v1.5', device='cpu')

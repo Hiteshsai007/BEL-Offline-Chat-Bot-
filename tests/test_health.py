@@ -55,3 +55,14 @@ def test_health_exposes_startup_ready_flag() -> None:
     # When startup fails, startup_ready must be False
     assert "startup_ready" in data
     assert data["startup_ready"] is False
+
+
+def test_root_page_is_not_cached() -> None:
+    """The UI shell should be re-fetched after a pull so updated HTML is visible."""
+    response = client.get("/")
+
+    assert response.status_code == 200
+    cache_control = response.headers.get("cache-control", "").lower()
+    assert "no-store" in cache_control
+    assert response.headers.get("pragma", "").lower() == "no-cache"
+    assert response.headers.get("expires", "").lower() == "0"
