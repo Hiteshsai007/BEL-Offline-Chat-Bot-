@@ -600,7 +600,7 @@ class Retriever:
                     specific_chunks = [
                         c for c in img_chunks
                         if (c.get("image_id") or "").lower() == target_img_id
-                        or f"[Image: {target_img_id}]" in c.get("chunk_text", "").lower()
+                        or f"[image: {target_img_id}]" in c.get("chunk_text", "").lower()
                     ]
                     if specific_chunks:
                         img_chunks = specific_chunks
@@ -763,12 +763,11 @@ class Retriever:
                 return _apply_document_filtering(query, exact)
 
             # Hybrid search (FR-2)
-            hybrid = self._hybrid_search(query)
-            filtered = _apply_document_filtering(query, hybrid)
+            filtered = self._hybrid_search(query)
             mode = "hybrid (dense+BM25)" if _bm25_available else "dense-only"
             log.info(
-                "Search [%s] for '%s': %d chunk(s) returned (from %d candidate(s))",
-                mode, query[:60], len(filtered), len(hybrid),
+                "Search [%s] for '%s': %d chunk(s) returned",
+                mode, query[:60], len(filtered),
             )
             return filtered
 

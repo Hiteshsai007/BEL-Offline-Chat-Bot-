@@ -199,6 +199,11 @@ def _parse_section_content(
             continue
 
         stripped = line.strip()
+        if _IMAGE_REF_RE.match(stripped) or (stripped.startswith("[Image:") and stripped.endswith("]")):
+            # Skip standalone [Image: ...] placeholder lines so they are not embedded as prose
+            _flush_prose()
+            continue
+
         if _TABLE_ROW_RE.match(stripped):
             # Entering or continuing a table block.
             _flush_prose()
