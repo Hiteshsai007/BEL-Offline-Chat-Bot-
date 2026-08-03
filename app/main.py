@@ -28,7 +28,7 @@ from app.logger import get_logger
 from app.rag.pipeline import query as rag_query
 from app.security import verify_same_origin
 from app.session import get_session_store
-from app.settings import FAISS_INDEX_PATH, MODEL_TAG, OLLAMA_URL, SERVER_HOST, SERVER_PORT
+from app.settings import FAISS_INDEX_PATH, OLLAMA_URL, SERVER_HOST, SERVER_PORT
 
 log = get_logger(__name__)
 

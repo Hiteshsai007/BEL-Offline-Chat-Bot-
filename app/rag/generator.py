@@ -24,7 +24,6 @@ from app.settings import (
     ERROR_CODE_PATTERN,
     MAX_MESSAGE_CHARS,
     MAX_TOKENS,
-    MODEL_TAG,
     NUM_CTX,
     OLLAMA_URL,
     TEMPERATURE,
