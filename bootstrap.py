@@ -52,7 +52,9 @@ ROOT = Path(__file__).resolve().parent
 IS_WINDOWS = platform.system() == "Windows"
 IS_LINUX = platform.system() == "Linux"
 MIN_PYTHON = (3, 11)
+MAX_PYTHON = (3, 13)
 TOTAL_STEPS = 9
+REEXEC_ENV = "BEL_BOOTSTRAP_REEXEC"
 
 # Ollama install pinning (finding S-4). Bump deliberately after reviewing the
 # upstream release notes; the checksum manifest is fetched per release, so a
@@ -174,7 +176,7 @@ def _find_executable(name: str) -> Optional[str]:
     path = shutil.which(name)
     if path:
         return path
-    
+
     # Fallback to standard installation paths that might not be in the current process PATH
     if IS_LINUX:
         for base in ("/usr/local/bin", "/usr/bin", "/bin", "/opt/bin"):
@@ -192,6 +194,57 @@ def _find_executable(name: str) -> Optional[str]:
                 p = Path(local_app).joinpath(*sub) / f"{name}.exe"
                 if p.exists() and os.access(p, os.X_OK):
                     return str(p)
+    return None
+
+
+def _find_supported_python_command() -> Optional[list[str]]:
+    """Return a command list that can run a supported Python interpreter."""
+    current = sys.executable
+    if current:
+        try:
+            r = _run([current, "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"])
+            if r.returncode == 0:
+                version = tuple(map(int, r.stdout.strip().split('.')))
+                if MIN_PYTHON <= (version[0], version[1]) <= MAX_PYTHON:
+                    return [current]
+        except Exception:
+            pass
+
+    if IS_WINDOWS:
+        py = _find_executable("py")
+        if py:
+            for version in ("3.13", "3.12", "3.11"):
+                r = _run([py, f"-{version}", "--version"])
+                if r.returncode == 0:
+                    return [py, f"-{version}"]
+
+        for name in ("python3.13", "python3.12", "python3.11", "python"):
+            path = _find_executable(name)
+            if not path:
+                continue
+            r = _run([path, "--version"])
+            if r.returncode == 0:
+                try:
+                    v = r.stdout.strip().split()[-1]
+                    major_minor = tuple(int(p) for p in v.split('.')[:2])
+                    if MIN_PYTHON <= major_minor <= MAX_PYTHON:
+                        return [path]
+                except Exception:
+                    continue
+    else:
+        for name in ("python3.13", "python3.12", "python3.11", "python3", "python"):
+            path = _find_executable(name)
+            if not path:
+                continue
+            r = _run([path, "--version"])
+            if r.returncode == 0:
+                try:
+                    v = r.stdout.strip().split()[-1]
+                    major_minor = tuple(int(p) for p in v.split('.')[:2])
+                    if MIN_PYTHON <= major_minor <= MAX_PYTHON:
+                        return [path]
+                except Exception:
+                    continue
     return None
 
 # ---------------------------------------------------------------------------
@@ -223,10 +276,69 @@ def detect_os() -> dict:
 def check_python() -> Result:
     v = sys.version_info
     ver = f"{v.major}.{v.minor}.{v.micro}"
-    if (v.major, v.minor) >= MIN_PYTHON:
+    if (v.major, v.minor) >= MIN_PYTHON and (v.major, v.minor) <= MAX_PYTHON:
         return Result("Python", Status.PRESENT, Status.PRESENT, ver)
+    if (v.major, v.minor) > MAX_PYTHON:
+        return Result("Python", Status.OUTDATED, Status.OUTDATED, ver,
+                      detail=f"Need <= {MAX_PYTHON[0]}.{MAX_PYTHON[1]} and >= {MIN_PYTHON[0]}.{MIN_PYTHON[1]}")
     return Result("Python", Status.OUTDATED, Status.OUTDATED, ver,
                   detail=f"Need >= {MIN_PYTHON[0]}.{MIN_PYTHON[1]}")
+
+
+def install_python_windows() -> Optional[Result]:
+    """Install a supported Python runtime on Windows when the current one is unsupported."""
+    if not IS_WINDOWS:
+        return None
+
+    log.info("Attempting automatic Python 3.13 install")
+
+    py_launcher = _find_executable("py")
+    if py_launcher:
+        r = _run([py_launcher, "-3.13", "--version"])
+        if r.returncode == 0:
+            return Result("Python", Status.OUTDATED, Status.PRESENT, r.stdout.strip(),
+                          action="Python 3.13 already available")
+
+    winget = _find_executable("winget")
+    if winget:
+        r = _run([winget, "install", "--id", "Python.Python.3.13", "--accept-source-agreements",
+                  "--accept-package-agreements", "--silent", "--disable-interactivity"])
+        if r.returncode == 0:
+            time.sleep(10)
+            for cmd in ([py_launcher, "-3.13"] if py_launcher else [], ["python", "-3.13"]):
+                if not cmd:
+                    continue
+                r = _run(cmd + ["--version"])
+                if r.returncode == 0:
+                    return Result("Python", Status.OUTDATED, Status.INSTALLED, r.stdout.strip(),
+                                  action="Installed Python 3.13 via winget")
+
+    installer_url = "https://www.python.org/ftp/python/3.13.0/python-3.13.0-amd64.exe"
+    tmp_dir = Path(tempfile.mkdtemp(prefix="bel-python-"))
+    installer = tmp_dir / "python-3.13.0-amd64.exe"
+    try:
+        err = _download(installer_url, installer, timeout=600)
+        if err:
+            return Result("Python", Status.OUTDATED, Status.FAILED,
+                          detail=f"Download failed: {err}")
+
+        r = _run([str(installer), "/quiet", "InstallAllUsers=0", "PrependPath=1", "Include_test=0"])
+        if r.returncode != 0:
+            return Result("Python", Status.OUTDATED, Status.FAILED,
+                          detail=(r.stderr[:300] or r.stdout[:300] or "installer failed"))
+
+        time.sleep(10)
+        for cmd in ([py_launcher, "-3.13"] if py_launcher else [], ["python", "-3.13"]):
+            if not cmd:
+                continue
+            r = _run(cmd + ["--version"])
+            if r.returncode == 0:
+                return Result("Python", Status.OUTDATED, Status.INSTALLED, r.stdout.strip(),
+                              action="Installed Python 3.13")
+        return Result("Python", Status.OUTDATED, Status.FAILED,
+                      detail="Installed Python but could not verify 3.13 on PATH")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 def check_venv() -> Result:
     venv = ROOT / ".venv"
@@ -242,25 +354,51 @@ def check_pip_packages() -> Result:
     if not req_file.exists():
         return Result("pip Packages", Status.ABSENT, Status.ABSENT, detail="requirements.txt missing")
     pip = _venv_pip()
-    if not pip.exists():
+    if not pip.exists() and not str(pip).endswith("pip.exe"):
         return Result("pip Packages", Status.ABSENT, Status.ABSENT, detail="venv pip not found")
     r = _run([str(pip), "list", "--format=json"])
     if r.returncode != 0:
         return Result("pip Packages", Status.ABSENT, Status.ABSENT, detail="pip list failed")
-    installed = {p["name"].lower() for p in json.loads(r.stdout)}
-    needed = set()
+
+    installed = {p["name"].lower(): p.get("version", "") for p in json.loads(r.stdout)}
+    needed: List[Tuple[str, str]] = []
     for line in req_file.read_text("utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        name = re.split(r"[><=!;\[]", line)[0].strip().lower()
+        match = re.match(r"^([A-Za-z0-9_.-]+)\s*(.*)$", line)
+        if not match:
+            continue
+        name = match.group(1).strip().lower()
+        spec = match.group(2).strip()
         if name:
-            needed.add(name)
-    missing = needed - installed
-    if not missing:
-        return Result("pip Packages", Status.PRESENT, Status.PRESENT, f"{len(needed)} packages")
-    return Result("pip Packages", Status.ABSENT, Status.ABSENT,
-                  detail=f"Missing: {', '.join(sorted(missing))}")
+            needed.append((name, spec))
+
+    missing = []
+    outdated = []
+    for name, spec in needed:
+        version = installed.get(name)
+        if not version:
+            missing.append(name)
+            continue
+        if spec:
+            # A simple, conservative check: only reject obvious version mismatches.
+            if spec.startswith(">="):
+                min_version = spec[2:].strip()
+                if tuple(map(int, re.findall(r"\d+", min_version)[:2])) > tuple(map(int, re.findall(r"\d+", version)[:2])):
+                    outdated.append(name)
+            elif spec.startswith("=="):
+                exact_version = spec[2:].strip()
+                if version != exact_version:
+                    outdated.append(name)
+
+    if missing:
+        return Result("pip Packages", Status.ABSENT, Status.ABSENT,
+                      detail=f"Missing: {', '.join(sorted(missing))}")
+    if outdated:
+        return Result("pip Packages", Status.OUTDATED, Status.OUTDATED,
+                      detail=f"Outdated: {', '.join(sorted(outdated))}")
+    return Result("pip Packages", Status.PRESENT, Status.PRESENT, f"{len(needed)} packages")
 
 def check_pytorch() -> Result:
     py = _venv_python()
@@ -329,10 +467,17 @@ def check_faiss_index() -> Result:
 
 def install_venv() -> Result:
     venv = ROOT / ".venv"
-    if venv.exists():
-        return Result("Virtual Env", Status.PRESENT, Status.PRESENT, str(venv))
-    log.info("Creating virtual environment at %s", venv)
-    r = _run([sys.executable, "-m", "venv", str(venv)])
+    py = _venv_python()
+    if venv.exists() and py.exists():
+        version = _venv_python_version()
+        if version and MIN_PYTHON <= (version[0], version[1]) <= MAX_PYTHON:
+            return Result("Virtual Env", Status.PRESENT, Status.PRESENT, str(venv))
+        log.warning("Existing .venv uses unsupported Python %s; recreating it", ".".join(map(str, version or (0, 0, 0))))
+        shutil.rmtree(venv, ignore_errors=True)
+
+    python_cmd = _find_supported_python_command() or [sys.executable]
+    log.info("Creating virtual environment at %s using %s", venv, python_cmd)
+    r = _run(python_cmd + ["-m", "venv", str(venv)])
     if r.returncode == 0:
         return Result("Virtual Env", Status.ABSENT, Status.INSTALLED, str(venv),
                       action="python -m venv .venv")
@@ -354,17 +499,18 @@ def install_pytorch() -> Result:
 
 def install_pip_packages() -> Result:
     chk = check_pip_packages()
-    if chk.before == Status.PRESENT:
-        return chk
+    if chk.before in (Status.PRESENT, Status.OUTDATED):
+        if chk.before == Status.PRESENT:
+            return chk
     pip = _venv_pip()
     req = ROOT / "requirements.txt"
     log.info("Installing pip packages from %s ...", req)
     r = _run([str(pip), "install", "-r", str(req), "--quiet"])
     if r.returncode == 0:
         v = check_pip_packages()
-        return Result("pip Packages", Status.ABSENT, Status.INSTALLED, v.version,
+        return Result("pip Packages", chk.before, Status.INSTALLED, v.version,
                       action="pip install -r requirements.txt")
-    return Result("pip Packages", Status.ABSENT, Status.FAILED, detail=r.stderr[:300])
+    return Result("pip Packages", chk.before, Status.FAILED, detail=r.stderr[:300])
 
 def _sha256_file(path: Path) -> str:
     """Return the hex SHA-256 digest of a file, read in chunks."""
@@ -675,12 +821,38 @@ def run_bootstrap(check_only: bool = False) -> bool:
     # Step 1: Python version
     step(1, "Checking Python version")
     r = check_python()
-    results.append(r)
+    if r.after != Status.PRESENT and IS_WINDOWS:
+        log.info("Python runtime is unsupported; attempting automatic install")
+        install_result = install_python_windows()
+        if install_result is not None:
+            results.append(install_result)
+            if install_result.after in (Status.INSTALLED, Status.PRESENT):
+                ok(f"Python {install_result.version}")
+                # Re-run the check after installation
+                r = check_python()
+                results.append(r)
+            else:
+                fail(f"Python install failed: {install_result.detail}")
+                print_summary(results)
+                return False
+        else:
+            results.append(r)
+    else:
+        results.append(r)
+
     if r.after == Status.PRESENT:
         ok(f"Python {r.version}")
     else:
-        fail(f"Python {r.version} -- need >= {MIN_PYTHON[0]}.{MIN_PYTHON[1]}")
-        fail("Install Python 3.11+ from https://python.org and re-run.")
+        supported_python = _find_supported_python_command()
+        if supported_python and supported_python[0] != sys.executable and os.environ.get(REEXEC_ENV) != "1":
+            log.info("Re-running bootstrap with supported interpreter: %s", supported_python)
+            env = os.environ.copy()
+            env[REEXEC_ENV] = "1"
+            ret = subprocess.call(supported_python + [str(Path(__file__).resolve())] + sys.argv[1:], env=env)
+            sys.exit(ret)
+
+        fail(f"Python {r.version} -- need >= {MIN_PYTHON[0]}.{MIN_PYTHON[1]} and <= {MAX_PYTHON[0]}.{MAX_PYTHON[1]}")
+        fail("Install Python 3.11/3.12/3.13 from https://python.org and re-run.")
         print_summary(results)
         return False
 
@@ -704,12 +876,14 @@ def run_bootstrap(check_only: bool = False) -> bool:
             return False
 
     # Re-exec inside venv if not already there
-    if not _in_venv() and not check_only:
+    if not _in_venv() and not check_only and os.environ.get(REEXEC_ENV) != "1":
         py = _venv_python()
         if py.exists():
             log.info("Re-executing inside venv: %s", py)
+            env = os.environ.copy()
+            env[REEXEC_ENV] = "1"
             ret = subprocess.call([str(py), str(Path(__file__).resolve())] +
-                                  sys.argv[1:])
+                                  sys.argv[1:], env=env)
             sys.exit(ret)
 
     # Step 3: PyTorch (CPU)

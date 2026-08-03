@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -112,11 +112,15 @@ class ClearSessionRequest(BaseModel):
 
 # ── Routes ──────────────────────────────────────────────────────────────────
 @app.get("/", include_in_schema=False)
-async def serve_ui() -> FileResponse:
+async def serve_ui() -> Response:
     index_path = STATIC_DIR / "index.html"
     if not index_path.exists():
         raise HTTPException(status_code=404, detail="UI not found")
-    return FileResponse(str(index_path))
+    response = FileResponse(str(index_path))
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @app.get("/favicon.ico", include_in_schema=False)
@@ -129,13 +133,21 @@ async def favicon() -> FileResponse:
 
 
 @app.get("/style.css", include_in_schema=False)
-async def serve_css() -> FileResponse:
-    return FileResponse(str(STATIC_DIR / "style.css"), media_type="text/css")
+async def serve_css() -> Response:
+    response = FileResponse(str(STATIC_DIR / "style.css"), media_type="text/css")
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @app.get("/app.js", include_in_schema=False)
-async def serve_js() -> FileResponse:
-    return FileResponse(str(STATIC_DIR / "app.js"), media_type="application/javascript")
+async def serve_js() -> Response:
+    response = FileResponse(str(STATIC_DIR / "app.js"), media_type="application/javascript")
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @app.post("/query", response_model=QueryResponse, dependencies=[Depends(verify_same_origin)])
