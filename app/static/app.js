@@ -600,6 +600,91 @@ async function checkHealth() {
   }
 }
 
+// --- Settings Modal Handler ---
+const settingsBtn = $('settingsBtn');
+const settingsModalBackdrop = $('settingsModalBackdrop');
+const closeSettingsModal = $('closeSettingsModal');
+const btnSettingsDone = $('btnSettingsDone');
+const modalThemeSelect = $('modalThemeSelect');
+const modalModelSelect = $('modalModelSelect');
+const btnClearAllHistory = $('btnClearAllHistory');
+
+function openSettingsModal() {
+  if (!settingsModalBackdrop) return;
+  
+  // Sync theme select state
+  const currentTheme = localStorage.getItem('bel_theme') || 'dark';
+  if (modalThemeSelect) modalThemeSelect.value = currentTheme;
+
+  // Sync model dropdown options
+  if (modalModelSelect && modelSelect) {
+    modalModelSelect.innerHTML = modelSelect.innerHTML;
+    modalModelSelect.value = modelSelect.value;
+  }
+
+  settingsModalBackdrop.classList.add('open');
+}
+
+function closeSettingsModalFunc() {
+  if (!settingsModalBackdrop) return;
+  settingsModalBackdrop.classList.remove('open');
+}
+
+if (settingsBtn) {
+  settingsBtn.addEventListener('click', openSettingsModal);
+}
+
+if (closeSettingsModal) {
+  closeSettingsModal.addEventListener('click', closeSettingsModalFunc);
+}
+
+if (btnSettingsDone) {
+  btnSettingsDone.addEventListener('click', closeSettingsModalFunc);
+}
+
+if (settingsModalBackdrop) {
+  settingsModalBackdrop.addEventListener('click', e => {
+    if (e.target === settingsModalBackdrop) closeSettingsModalFunc();
+  });
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && settingsModalBackdrop && settingsModalBackdrop.classList.contains('open')) {
+    closeSettingsModalFunc();
+  }
+});
+
+if (modalThemeSelect) {
+  modalThemeSelect.addEventListener('change', () => {
+    const val = modalThemeSelect.value;
+    if (val === 'light' && !document.body.classList.contains('light-mode')) {
+      toggleTheme();
+    } else if (val === 'dark' && document.body.classList.contains('light-mode')) {
+      toggleTheme();
+    }
+  });
+}
+
+if (modalModelSelect) {
+  modalModelSelect.addEventListener('change', () => {
+    if (modelSelect) {
+      modelSelect.value = modalModelSelect.value;
+      modelSelect.dispatchEvent(new Event('change'));
+    }
+  });
+}
+
+if (btnClearAllHistory) {
+  btnClearAllHistory.addEventListener('click', () => {
+    if (confirm('Are you sure you want to clear all local chat history?')) {
+      localStorage.removeItem('bel_offline_chats_v5');
+      startNewChat();
+      renderHistoryList();
+      closeSettingsModalFunc();
+    }
+  });
+}
+
 // --- Init ---
 (function init() {
   initTheme();
@@ -613,3 +698,4 @@ async function checkHealth() {
   checkHealth();
   setInterval(checkHealth, 30000);
 })();
+

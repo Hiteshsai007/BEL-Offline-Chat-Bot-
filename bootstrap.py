@@ -360,7 +360,7 @@ def check_pip_packages() -> Result:
     if r.returncode != 0:
         return Result("pip Packages", Status.ABSENT, Status.ABSENT, detail="pip list failed")
 
-    installed = {p["name"].lower(): p.get("version", "") for p in json.loads(r.stdout)}
+    installed = {p["name"].lower().replace("_", "-"): p.get("version", "") for p in json.loads(r.stdout)}
     needed: List[Tuple[str, str]] = []
     for line in req_file.read_text("utf-8").splitlines():
         line = line.strip()
@@ -369,7 +369,7 @@ def check_pip_packages() -> Result:
         match = re.match(r"^([A-Za-z0-9_.-]+)\s*(.*)$", line)
         if not match:
             continue
-        name = match.group(1).strip().lower()
+        name = match.group(1).strip().lower().replace("_", "-")
         spec = match.group(2).strip()
         if name:
             needed.append((name, spec))
@@ -491,11 +491,27 @@ def install_pytorch() -> Result:
     log.info("Installing PyTorch (CPU-only) ...")
     r = _run([str(pip), "install", "torch",
               "--index-url", "https://download.pytorch.org/whl/cpu", "--quiet"])
-    if r.returncode == 0:
-        v = check_pytorch()
-        return Result("PyTorch", Status.ABSENT, Status.INSTALLED, v.version,
+    chk = check_pytorch()
+    if r.returncode == 0 and chk.after == Status.PRESENT:
+        return Result("PyTorch", Status.ABSENT, Status.INSTALLED, chk.version,
                       action="pip install torch (CPU)")
-    return Result("PyTorch", Status.ABSENT, Status.FAILED, detail=r.stderr[:300])
+    
+    log.warning("PyTorch download via dedicated index failed; trying PyPI index fallback ...")
+    r = _run([str(pip), "install", "torch",
+              "--extra-index-url", "https://download.pytorch.org/whl/cpu", "--quiet"])
+    chk = check_pytorch()
+    if chk.after == Status.PRESENT:
+        return Result("PyTorch", Status.ABSENT, Status.INSTALLED, chk.version,
+                      action="pip install torch")
+
+    r = _run([str(pip), "install", "torch", "--quiet"])
+    chk = check_pytorch()
+    if chk.after == Status.PRESENT:
+        return Result("PyTorch", Status.ABSENT, Status.INSTALLED, chk.version,
+                      action="pip install torch")
+
+    return Result("PyTorch", Status.ABSENT, Status.FAILED, detail=r.stderr[:300] or "PyTorch install failed")
+
 
 def install_pip_packages() -> Result:
     chk = check_pip_packages()
@@ -911,6 +927,14 @@ def run_bootstrap(check_only: bool = False) -> bool:
         ok(f"All packages satisfied ({r.version})")
     else:
         fail(f"pip packages: {r.detail}")
+
+    # Re-verify PyTorch if it was previously marked failed
+    for idx, res in enumerate(results):
+        if res.name == "PyTorch" and res.after == Status.FAILED:
+            py_chk = check_pytorch()
+            if py_chk.after == Status.PRESENT:
+                results[idx] = Result("PyTorch", Status.ABSENT, Status.PRESENT, py_chk.version, action="Installed via requirements")
+
 
     # Step 5: Ollama binary
     step(5, "Checking Ollama runtime")
