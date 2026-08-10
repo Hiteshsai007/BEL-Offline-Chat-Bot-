@@ -1,31 +1,43 @@
-# BEL Offline AI Interface — Phase 1
+# 🚢 BEL Offline AI Interface — Phase 1
 **Offline AI fault code lookup powered by local LLM inference**
 
-Prepared for: **Bharat Electronics Limited (BEL)** — Technical Mentorship Review  
-Authors: B V Hitesh Sai, Charan Gowda M D, Harsha B, Akshay
+> Prepared for: **Bharat Electronics Limited (BEL)** — Technical Mentorship Review  
+> Authors: B V Hitesh Sai, Charan Gowda M D, Harsha B, Akshay
 
 ---
 
-## Requirements
+## 📑 Table of Contents
+- [Requirements](#-requirements)
+- [First-Time Setup](#-first-time-setup-runs-once-requires-internet)
+- [How to Use](#-how-to-use-for-ship-workers)
+- [Updating the Knowledge Base](#-updating-the-knowledge-base)
+- [Project Structure](#-project-structure)
+- [Tuning](#-tuning)
+- [Security](#-security)
+- [Troubleshooting](#-troubleshooting)
+
+---
+
+## 💻 Requirements
 
 | Component | Requirement |
 |---|---|
-| Python | 3.11 or later |
-| GPU | Optional (NVIDIA recommended for faster inference) |
-| RAM | >= 4 GB system memory (8 GB recommended) |
-| Disk Space | >= 6 GB free on the drive where BEL is installed (for the AI model, Python packages, and temporary download files) |
-| Ollama | Installed and running |
-| OS | Windows 10/11 or Linux (Ubuntu/Debian) |
-| Network | Not required after first setup |
+| **Python** | 3.11 or later |
+| **GPU** | Optional (NVIDIA recommended for faster inference) |
+| **RAM** | >= 4 GB system memory (8 GB recommended) |
+| **Disk Space** | >= 6 GB free on the drive where BEL is installed (for the AI model, Python packages, and temporary download files) |
+| **Ollama** | Installed and running |
+| **OS** | Windows 10/11 or Linux (Ubuntu/Debian) |
+| **Network** | **Not required after first setup!** |
 
 ---
 
-## First-Time Setup (Runs once, requires internet)
+## 🚀 First-Time Setup (Runs once, requires internet)
 
 Before you can use the system completely offline on the ship, you must run the setup script **one time** while connected to the internet. This will download the required AI models and install the necessary software.
 
 ### Windows Setup (Zero-Typing Instructions)
-1. Open the BEL project folder.
+1. Open the **BEL** project folder.
 2. Double-click the file named **`First-Time-Setup.bat`**.
 3. A black terminal window will open and ask you to press any key to continue. Press any key.
 
@@ -96,14 +108,14 @@ Once it says "SETUP COMPLETE!", you can close the window and disconnect from the
 
 ---
 
-## How to Use (For Ship Workers)
+## 🛠️ How to Use (For Ship Workers)
 
 The system has been configured for fully offline, one-click startup. No coding or terminal experience is required.
 
 ### Option 1: Desktop Shortcuts (Easiest)
 There are two shortcuts located directly on the **Desktop**:
-1. **BEL AI Assistant**: Double-click this to open the beautiful Chatbot graphical interface (requires a web browser to be installed on the machine).
-2. **BEL AI Assistant (Terminal)**: Double-click this to open the command-line CLI interface. Use this if the machine is "bare metal" and has no web browser installed.
+1. 🖥️ **BEL AI Assistant**: Double-click this to open the beautiful Chatbot graphical interface (requires a web browser to be installed on the machine).
+2. 📟 **BEL AI Assistant (Terminal)**: Double-click this to open the command-line CLI interface. Use this if the machine is "bare metal" and has no web browser installed.
 
 ### Option 2: Launcher Scripts (From the Folder)
 If the shortcuts are missing, you can run the application directly from the folder:
@@ -120,23 +132,21 @@ If the shortcuts are missing, you can run the application directly from the fold
 
 ---
 
-## Updating the Knowledge Base
+## 📚 Updating the Knowledge Base
 
-When a new version of `IRL Fault Codes.pdf` is available:
+When a new version of the Fault Codes PDF is available, you can ingest it by providing the path to the new file using the `--pdf` flag:
 
 **Windows:**
 ```powershell
-# Place the new PDF in the BEL folder
-# Then re-run ingestion from an activated environment:
-.\.venv\Scripts\python -m app.ingestion.ingest
+# Re-run ingestion from an activated environment with the path to the new PDF:
+.\.venv\Scripts\python -m app.ingestion.ingest --pdf "path\to\your\new_file.pdf"
 ```
 
 **Linux:**
 ```bash
-# Place the new PDF in the BEL folder
-# Then re-run ingestion from an activated environment:
+# Re-run ingestion from an activated environment with the path to the new PDF:
 source .venv/bin/activate
-python3 -m app.ingestion.ingest
+python3 -m app.ingestion.ingest --pdf "path/to/your/new_file.pdf"
 ```
 
 The index is rebuilt atomically — the running server is unaffected until the reload endpoint is called:
@@ -148,7 +158,7 @@ Invoke-RestMethod -Uri "http://127.0.0.1:8000/reload" -Method Post
 
 ---
 
-## Project Structure
+## 📁 Project Structure
 
 ```
 BEL/
@@ -190,7 +200,7 @@ BEL/
 
 ---
 
-## Tuning
+## ⚙️ Tuning
 
 All parameters are in [`app/config.yaml`](app/config.yaml) — no code changes needed:
 
@@ -223,7 +233,7 @@ the box.
 
 ---
 
-## Security
+## 🔒 Security
 
 - Ollama listens on `127.0.0.1` only — no remote inference
 - FastAPI server listens on `127.0.0.1:8000` only
@@ -233,7 +243,7 @@ the box.
 
 ---
 
-## Troubleshooting
+## 🚨 Troubleshooting
 
 | Problem | Solution |
 |---|---|
