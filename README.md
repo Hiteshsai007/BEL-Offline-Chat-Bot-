@@ -149,10 +149,20 @@ source .venv/bin/activate
 python3 -m app.ingestion.ingest --pdf "path/to/your/new_file.pdf"
 ```
 
-The index is rebuilt atomically — the running server is unaffected until the reload endpoint is called:
+The index is rebuilt atomically. The running server detects the new FAISS and
+chunk files before the next query, so restarting the app is not required.
+
+General PDFs and converted Markdown documents use the separate general-document
+index:
 
 ```powershell
-# Hot-reload the index without restarting the server:
+.\.venv\Scripts\python -m app.ingestion.ingest_general --pdf "path\to\manual.pdf"
+.\.venv\Scripts\python -m app.ingestion.ingest_general --md "path\to\manual.md"
+```
+
+The reload endpoint remains available for an explicit administrative reload:
+
+```powershell
 Invoke-RestMethod -Uri "http://127.0.0.1:8000/reload" -Method Post
 ```
 
