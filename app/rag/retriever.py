@@ -27,6 +27,7 @@ BM25 hybrid search:
   for keyword-heavy queries that dense embeddings alone may miss.
   If rank-bm25 is not installed, falls back to dense-only retrieval.
 """
+import hashlib
 import re
 import threading
 from dataclasses import dataclass
@@ -261,6 +262,14 @@ class Retriever:
 
         self._lock = threading.Lock()
         self._last_selected_index: str = "fault_code"
+        # Keep the paths used to construct this instance.  Besides making test
+        # instances self-contained, this lets us detect an index rebuilt by a
+        # separate ingestion process and hot-reload it before the next query.
+        self._index_path = index_path
+        self._chunks_path = chunks_path
+        self._general_index_path = _GENERAL_FAISS_PATH
+        self._general_chunks_path = _GENERAL_CHUNKS_PATH
+        self._loaded_file_signature: tuple | None = None
 
         if not index_path.exists():
             raise FileNotFoundError(
@@ -305,6 +314,18 @@ class Retriever:
         self._general_chunks: list[dict] = []
         self._general_bm25 = None
         self._load_general_index()
+        self._loaded_file_signature = self._index_file_signature()
+
+    @staticmethod
+    def _chunks_fingerprint(chunks: list[dict]) -> str:
+        """Return a stable fingerprint of the corpus represented by *chunks*."""
+        digest = hashlib.sha256()
+        for chunk in chunks:
+            digest.update(str(chunk.get("chunk_id", "")).encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(chunk.get("chunk_text", "").encode("utf-8"))
+            digest.update(b"\0")
+        return digest.hexdigest()
 
     @staticmethod
     def _build_bm25_index(chunks: list[dict], cache_path: Path | None = None):
@@ -314,15 +335,28 @@ class Retriever:
         if not _bm25_available or not chunks:
             return None
 
+        corpus_fingerprint = Retriever._chunks_fingerprint(chunks)
         if cache_path and cache_path.exists():
             try:
                 with open(cache_path, "rb") as f:
-                    bm25 = pickle.load(f)
-                c_size = getattr(bm25, "corpus_size", len(getattr(bm25, "doc_len", [])))
-                if c_size == len(chunks):
-                    log.info("BM25 index loaded from cache: %s", cache_path)
-                    return bm25
-                log.info("BM25 cache count mismatch (%d vs %d) -- rebuilding.", c_size, len(chunks))
+                    cached = pickle.load(f)
+                # Version 2 caches bind the BM25 object to the actual corpus.
+                # The old cache format only checked chunk count, so replacing a
+                # document with another having the same number of chunks could
+                # silently apply keyword scores from the previous document.
+                if (
+                    isinstance(cached, dict)
+                    and cached.get("version") == 2
+                    and cached.get("corpus_fingerprint") == corpus_fingerprint
+                ):
+                    bm25 = cached.get("bm25")
+                    c_size = getattr(
+                        bm25, "corpus_size", len(getattr(bm25, "doc_len", []))
+                    )
+                    if c_size == len(chunks):
+                        log.info("BM25 index loaded from cache: %s", cache_path)
+                        return bm25
+                log.info("BM25 cache is stale or legacy -- rebuilding: %s", cache_path)
             except Exception as e:
                 log.warning("Failed to load cached BM25 index (%s) -- rebuilding.", e)
 
@@ -334,7 +368,14 @@ class Retriever:
                 try:
                     cache_path.parent.mkdir(parents=True, exist_ok=True)
                     with open(cache_path, "wb") as f:
-                        pickle.dump(bm25, f)
+                        pickle.dump(
+                            {
+                                "version": 2,
+                                "corpus_fingerprint": corpus_fingerprint,
+                                "bm25": bm25,
+                            },
+                            f,
+                        )
                     log.info("Saved BM25 index cache -> %s", cache_path)
                 except Exception as e:
                     log.warning("Could not save BM25 index cache: %s", e)
@@ -347,16 +388,26 @@ class Retriever:
         """Load the general-document index if it exists. Silent no-op if not."""
         import faiss  # type: ignore
 
-        if not _GENERAL_FAISS_PATH.exists() or not _GENERAL_CHUNKS_PATH.exists():
+        # Clear the old state first.  If an index was removed or a replacement
+        # is invalid, continuing to serve chunks from the previous document is
+        # more misleading than cleanly disabling general retrieval.
+        self._general_index = None
+        self._general_chunks = []
+        self._general_bm25 = None
+
+        if (
+            not self._general_index_path.exists()
+            or not self._general_chunks_path.exists()
+        ):
             log.info(
                 "General-document index not found at %s -- skipping.",
-                _GENERAL_INDEX_DIR,
+                self._general_index_path.parent,
             )
             return
 
         try:
-            self._general_index = faiss.read_index(str(_GENERAL_FAISS_PATH))
-            self._general_chunks = load_chunks(_GENERAL_CHUNKS_PATH)
+            self._general_index = faiss.read_index(str(self._general_index_path))
+            self._general_chunks = load_chunks(self._general_chunks_path)
 
             if len(self._general_chunks) != self._general_index.ntotal:
                 log.warning(
@@ -369,8 +420,10 @@ class Retriever:
                 self._general_bm25 = None
                 return
 
-            gen_bm25_cache = _GENERAL_INDEX_DIR / "bm25.pkl"
-            self._general_bm25 = self._build_bm25_index(self._general_chunks, gen_bm25_cache)
+            gen_bm25_cache = self._general_index_path.parent / "bm25.pkl"
+            self._general_bm25 = self._build_bm25_index(
+                self._general_chunks, gen_bm25_cache
+            )
 
             log.info(
                 "General-document index loaded: %d vectors",
@@ -750,11 +803,60 @@ class Retriever:
 
     # -- Public API -------------------------------------------------------
 
+    @staticmethod
+    def _file_signature(path: Path) -> tuple:
+        """Return cheap identity data that changes when *path* is replaced."""
+        try:
+            stat = path.stat()
+            return (
+                True,
+                stat.st_size,
+                stat.st_mtime_ns,
+                stat.st_ctime_ns,
+                getattr(stat, "st_ino", 0),
+            )
+        except FileNotFoundError:
+            return (False,)
+
+    def _index_file_signature(self) -> tuple:
+        """Describe both primary and general FAISS/chunk file pairs."""
+        return tuple(
+            self._file_signature(path)
+            for path in (
+                self._index_path,
+                self._chunks_path,
+                self._general_index_path,
+                self._general_chunks_path,
+            )
+        )
+
+    def _reload_if_index_changed(self) -> None:
+        """Pick up indexes produced by another process without an API call."""
+        current = self._index_file_signature()
+        if current == self._loaded_file_signature:
+            return
+        log.info("Knowledge-base files changed on disk; reloading indexes.")
+        try:
+            self.reload()
+        except Exception as e:
+            # Ingestion replaces a pair of files atomically one at a time.  A
+            # query in that very small window must keep using the known-good
+            # in-memory index rather than fail.  Because the loaded signature
+            # is not advanced, the next query retries the reload.
+            log.warning(
+                "Automatic index reload deferred; retaining current index: %s", e
+            )
+
     def retrieve(self, query: str) -> list[RetrievedChunk]:
         """
         Retrieve relevant chunks for a query.
         Returns an empty list if nothing clears the confidence threshold.
         """
+        # Ingestion normally runs in a separate CLI process.  Detect its
+        # atomic file replacement here so users do not have to restart the app
+        # or remember to call /reload after adding a document.
+        self._reload_if_index_changed()
+
         with self._lock:
             # Try exact code match first (FR-3)
             exact = self._exact_lookup(query)
@@ -776,8 +878,8 @@ class Retriever:
         import faiss  # type: ignore
 
         with self._lock:
-            new_index = faiss.read_index(str(FAISS_INDEX_PATH))
-            new_chunks = load_chunks(CHUNKS_STORE_PATH)
+            new_index = faiss.read_index(str(self._index_path))
+            new_chunks = load_chunks(self._chunks_path)
 
             if len(new_chunks) != new_index.ntotal:
                 raise ValueError(
@@ -804,6 +906,7 @@ class Retriever:
             total = self._index.ntotal + (
                 self._general_index.ntotal if self._general_index else 0
             )
+            self._loaded_file_signature = self._index_file_signature()
             log.info("Retriever reloaded: %d total vectors", total)
 
 
