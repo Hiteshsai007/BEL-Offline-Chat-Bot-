@@ -103,9 +103,21 @@ def test_diagram_retrieval_page_with_images():
 
 
 def test_ocr_query_with_text():
-    res = query("What text is visible inside image page_55_img_0?")
+    # Select an OCR-bearing image from the active, replaceable corpus rather
+    # than assuming the image IDs of a particular manual.
+    metadata_path = "data/index/general/image_metadata.jsonl"
+    with open(metadata_path, encoding="utf-8") as handle:
+        image = next(
+            item for item in map(json.loads, handle)
+            if item.get("ocr_text")
+        )
+    res = query(f"What text is visible inside image {image['image_id']}?")
     assert res.found is True
-    assert "page 55" in res.answer.lower() or "intake" in res.answer.lower()
+    answer_lower = res.answer.lower()
+    assert (
+        f"page {image['page_number']}" in answer_lower
+        or image["ocr_text"].lower()[:12] in answer_lower
+    )
 
 
 def test_ocr_query_no_text_on_page():

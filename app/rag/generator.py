@@ -189,22 +189,13 @@ def _has_citation(text: str, retrieved_chunks: list) -> bool:
     # General documents (no error codes): accept document name, page number, or source tag
     valid_docs = _citable_documents(retrieved_chunks)
     valid_pages = _citable_pages(retrieved_chunks)
-    stop_words = {"page", "pdf", "file", "doc", "document", "manual", "guide", "source"}
-
     for span in spans:
-        span_l = span.lower()
-        span_words = [
-            w for w in re.findall(r"\b[a-zA-Z]{3,}\b", span_l)
-            if w not in stop_words
-        ]
-        has_doc = any(
-            doc and (
-                doc in span_l
-                or (len(span_l) >= 4 and span_l in doc)
-                or any(w in doc for w in span_words)
-            )
-            for doc in valid_docs
-        )
+        span_l = span.lower().strip()
+        # A citation must contain the complete retrieved document name.  Do
+        # not accept an arbitrary word that merely occurs in a filename (for
+        # example, "Harry" in a Harry Potter PDF); that is ordinary answer
+        # text, not provenance.
+        has_doc = any(doc and doc in span_l for doc in valid_docs)
         has_page = any(
             re.search(rf"\bpage\s*{re.escape(p)}\b", span_l)
             or re.search(rf"\bp\.?\s*{re.escape(p)}\b", span_l)
@@ -217,14 +208,10 @@ def _has_citation(text: str, retrieved_chunks: list) -> bool:
     # Fallback for general documents: evaluate full response text
     if spans != [text]:
         text_l = text.lower()
-        text_words = [
-            w for w in re.findall(r"\b[a-zA-Z]{3,}\b", text_l)
-            if w not in stop_words
-        ]
-        has_doc_text = any(
-            doc and (doc in text_l or any(w in doc for w in text_words))
-            for doc in valid_docs
-        )
+        # Outside brackets, only an exact document name or an explicitly
+        # labelled page reference can establish provenance.  Individual
+        # filename words are never enough.
+        has_doc_text = any(doc and doc in text_l for doc in valid_docs)
         has_page_text = any(
             re.search(rf"\bpage\s*{re.escape(p)}\b", text_l)
             or re.search(rf"\bp\.?\s*{re.escape(p)}\b", text_l)
