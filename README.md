@@ -134,37 +134,100 @@ If the shortcuts are missing, you can run the application directly from the fold
 
 ## 📚 Updating the Knowledge Base
 
-When a new version of the Fault Codes PDF is available, you can ingest it by providing the path to the new file using the `--pdf` flag:
+When a new version of the Fault Codes PDF, general manuals, or technical documentation becomes available, follow this step-by-step guide to update the offline knowledge base.
 
-**Windows:**
-```powershell
-# Re-run ingestion from an activated environment with the path to the new PDF:
-.\.venv\Scripts\python -m app.ingestion.ingest --pdf "path\to\your\new_file.pdf"
-```
+### 1. Stopping the Application
+While the application supports hot-reloading (see Step 9), you may stop the currently running application server if you prefer to perform maintenance from a clean state:
+- **Windows:** Close the running command prompt / terminal window where `Launch.bat` or `Launch-CLI.bat` is executing, or press `Ctrl+C`.
+- **Linux:** Press `Ctrl+C` in the terminal where `./launch.sh` or `./launch-cli.sh` is running, or close the terminal window.
 
-**Linux:**
-```bash
-# Re-run ingestion from an activated environment with the path to the new PDF:
-source .venv/bin/activate
-python3 -m app.ingestion.ingest --pdf "path/to/your/new_file.pdf"
-```
+### 2. Placing the New Document
+Copy or move your new PDF (`.pdf`) or Markdown (`.md`) document into the project directory (or a known directory on your system):
+- Place updated fault code PDFs or technical manuals in the `BEL/` project root or the `data/` directory (e.g., `IRL Fault Codes.pdf` or `data/Ninja_ZX_10R_Owner_Manual.md`).
+- Avoid using special characters in filenames to prevent shell escaping issues.
 
-The index is rebuilt atomically. The running server detects the new FAISS and
-chunk files before the next query, so restarting the app is not required.
+### 3. Opening the Project Terminal
+Open a command-line terminal and navigate to the root of the BEL project directory:
+- **Windows:** Open PowerShell or Command Prompt and run:
+  ```powershell
+  cd path\to\BEL
+  ```
+- **Linux:** Open a terminal and run:
+  ```bash
+  cd /path/to/BEL
+  ```
 
-General PDFs and converted Markdown documents use the separate general-document
-index:
+### 4. Ingesting PDF or Markdown Files on Windows/Linux
+Run the ingestion script from an activated Python environment or directly using the virtual environment's Python interpreter. You can ingest either PDF (`--pdf`) or Markdown (`--md`) files on both Windows and Linux operating systems. Ensure you pass the absolute or relative path to your document file.
 
-```powershell
-.\.venv\Scripts\python -m app.ingestion.ingest_general --pdf "path\to\manual.pdf"
-.\.venv\Scripts\python -m app.ingestion.ingest_general --md "path\to\manual.md"
-```
+### 5. Choosing Between General-Document and Fault-Code Ingestion
+When ingesting documents, select the appropriate script for your document type:
 
-The reload endpoint remains available for an explicit administrative reload:
+#### A. Fault-Code Ingestion (`app.ingestion.ingest`)
+Use **only** for structured fault-code lookup tables and error code lists (e.g., `IRL Fault Codes.pdf`). This script accepts `--pdf` and rebuilds `data/index/faiss.index` and `data/index/chunks.jsonl`.
+- **Windows (PowerShell):**
+  ```powershell
+  .\.venv\Scripts\python -m app.ingestion.ingest --pdf "path\to\new_fault_codes.pdf"
+  ```
+- **Linux:**
+  ```bash
+  source .venv/bin/activate
+  python3 -m app.ingestion.ingest --pdf "path/to/new_fault_codes.pdf"
+  ```
 
-```powershell
-Invoke-RestMethod -Uri "http://127.0.0.1:8000/reload" -Method Post
-```
+#### B. General-Document Ingestion (`app.ingestion.ingest_general`)
+Use for general manuals, prose guides, technical documentation, or converted Markdown documents. This script accepts either `--pdf` or `--md` and rebuilds `data/index/general/faiss.index` and `data/index/general/chunks.jsonl`.
+- **Windows (PowerShell):**
+  ```powershell
+  # Ingesting a PDF manual:
+  .\.venv\Scripts\python -m app.ingestion.ingest_general --pdf "path\to\manual.pdf"
+
+  # Ingesting a Markdown (.md) document:
+  .\.venv\Scripts\python -m app.ingestion.ingest_general --md "path\to\manual.md"
+  ```
+- **Linux:**
+  ```bash
+  source .venv/bin/activate
+  # Ingesting a PDF manual:
+  python3 -m app.ingestion.ingest_general --pdf "path/to/manual.pdf"
+
+  # Ingesting a Markdown (.md) document:
+  python3 -m app.ingestion.ingest_general --md "path/to/manual.md"
+  ```
+
+### 6. Checking Ingestion Results
+Verify that the ingestion script completed successfully by checking the terminal output:
+- Confirm you see a completion message such as:
+  `Ingestion complete in X.Xs — N chunks indexed.`
+  or
+  `Markdown ingestion complete in X.Xs -- N chunks indexed.`
+- Ensure the log displays a valid `Source hash:` and indicates no validation errors or fidelity failures.
+- Check that the index and chunk store files in `data/index/` (or `data/index/general/`) have updated modification timestamps.
+
+### 7. Restarting the Application
+If you stopped the application in Step 1, launch it again using your preferred desktop shortcut or launcher script:
+- **Windows:** Double-click `Launch.bat` (Chatbot UI) or `Launch-CLI.bat` (Terminal CLI).
+- **Linux:** Run `./launch.sh` (Chatbot UI) or `./launch-cli.sh` (Terminal CLI).
+
+### 8. Testing the New Document and Citation
+After launching the interface:
+- Ask a query related to the newly ingested content (e.g., search for a specific error code from the updated fault codes list or query a maintenance procedure from the newly ingested manual).
+- Check that the assistant returns accurate information grounded in the updated document.
+- Verify the **citation metadata** below the answer to confirm that it correctly references the new document title, page number, or markdown heading.
+
+### 9. Reloading Indexes Without a Restart
+The ingestion scripts rebuild all FAISS indexes and JSONL chunk stores **atomically** (writing temporary files and renaming them into place).
+- **Automatic Detection:** The running application server automatically monitors index file timestamps and reloads new indexes into memory before the next query — no manual restart is required.
+- **Explicit Administrative Reload:** To force an immediate reload of both fault-code and general-document indexes without waiting for a query or restarting the server, invoke the `/reload` endpoint:
+  - **Windows (PowerShell):**
+    ```powershell
+    Invoke-RestMethod -Uri "http://127.0.0.1:8000/reload" -Method Post
+    ```
+  - **Linux (curl):**
+    ```bash
+    curl -X POST http://127.0.0.1:8000/reload
+    ```
+  - A successful call returns a JSON confirmation indicating that both search indexes were reloaded.
 
 ---
 
