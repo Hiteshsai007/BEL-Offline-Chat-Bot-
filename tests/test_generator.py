@@ -77,6 +77,52 @@ def test_generate_guardrail_both_fail() -> None:
     assert result["citations"] == []
 
 
+def test_general_answer_gets_deterministic_citation() -> None:
+    """A useful general-document answer survives when Ollama omits brackets."""
+    context = [
+        RetrievedChunk(
+            chunk={
+                "document_name": "Harry Potter and the Philosopher's Stone.pdf",
+                "page_number": 42,
+                "chunk_type": "prose",
+                "chunk_text": "Hagrid brought Harry to the Dursleys.",
+                "error_code": None,
+            },
+            score=0.8,
+        )
+    ]
+    with patch(
+        "app.rag.generator._call_ollama",
+        return_value=("Hagrid brought Harry to the Dursleys.", 120.0),
+    ):
+        result = generate("Who brought Harry to the Dursleys?", context)
+
+    assert "Hagrid" in result["answer"]
+    assert "[Harry Potter and the Philosopher's Stone.pdf, page 42]" in result["answer"]
+    assert result["citations"] == [
+        "Harry Potter and the Philosopher's Stone.pdf, page 42"
+    ]
+    assert result["guardrail_triggered"] is False
+
+
+def test_ordinary_filename_word_is_not_a_citation() -> None:
+    """A name from a document filename must not satisfy citation validation."""
+    from app.rag.generator import _has_citation
+
+    context = [
+        RetrievedChunk(
+            chunk={
+                "document_name": "Harry Potter and the Philosopher's Stone.pdf",
+                "page_number": 42,
+                "chunk_text": "Hagrid brought Harry to the Dursleys.",
+                "error_code": None,
+            },
+            score=0.8,
+        )
+    ]
+    assert _has_citation("Harry was brought to the Dursleys.", context) is False
+
+
 def test_generate_ollama_connect_error() -> None:
     """Connection error returns DEGRADED_MSG with error marker."""
     context = [_chunk("0x0003")]

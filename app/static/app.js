@@ -376,8 +376,14 @@ function renderAIMessage(data) {
     if (data.retrieved_chunks && data.retrieved_chunks.length > 0) {
       body += `<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-card);"><div style="font-size:11px;font-weight:700;color:var(--text-dim);margin-bottom:6px;text-transform:uppercase;">Retrieved Sources</div>`;
       data.retrieved_chunks.forEach(c => {
+        const documentName = c.document_name || 'Unknown document';
+        const page = c.page_number != null ? `Page ${c.page_number}` : '';
+        const chunkType = c.chunk_type ? c.chunk_type : '';
+        const location = [documentName, page, chunkType].filter(Boolean).join(' · ');
         if (c.error_code) {
-          body += `<div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;"><span style="font-family:monospace;color:var(--accent-blue);font-weight:600;">${esc(c.error_code)}</span> <span>${esc(c.error_description || '')}</span></div>`;
+          body += `<div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;"><span style="font-family:monospace;color:var(--accent-blue);font-weight:600;">${esc(c.error_code)}</span> <span>${esc(c.error_description || '')}</span><div style="font-size:11px;color:var(--text-dim);margin-top:2px;">${esc(location)}</div></div>`;
+        } else {
+          body += `<div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;"><span style="color:var(--accent-blue);font-weight:600;">${esc(documentName)}</span>${page ? ` <span>${esc(page)}</span>` : ''}${chunkType ? ` <span style="color:var(--text-dim);">· ${esc(chunkType)}</span>` : ''}</div>`;
         }
       });
       body += `</div>`;
