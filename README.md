@@ -1,4 +1,4 @@
-# 🚢 BEL Offline AI Interface — Phase 1
+# 🚢 BEL Offline AI Interface 
 **Offline AI fault code lookup powered by local LLM inference**
 
 > Prepared for: **Bharat Electronics Limited (BEL)** — Technical Mentorship Review  
