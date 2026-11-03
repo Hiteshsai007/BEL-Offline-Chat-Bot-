@@ -1,7 +1,7 @@
 # 🚢 BEL Offline AI Interface 
 **Offline AI fault code lookup powered by local LLM inference**
 
-> Prepared for: **Bharat Electronics Limited (BEL)** — Technical Mentorship Review  
+> Prepared for: **Bharat Electronics Limited (BEL)** 
 > Authors: B V Hitesh Sai, Charan Gowda M D, Harsha B, Akshay
 
 ---
